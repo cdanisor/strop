@@ -1,0 +1,32 @@
+# Strop - Raspberry Pi Irrigation Control System
+# Requirements file for the Strop application
+
+# Web framework
+Flask==2.3.3
+
+# CORS support for Flask
+Flask-CORS==6.0.2
+
+# GPIO control for Raspberry Pi
+RPi.GPIO==0.7.1
+
+# HTTP requests for API calls
+requests==2.31.0
+
+# For cron scheduling
+schedule==1.2.1
+
+# For environment variables management
+python-dotenv==1.0.0
+
+# For testing
+pytest==7.4.3
+
+# For configuration management
+pyyaml==6.0.1
+
+# For web development tools
+gunicorn==21.2.0
+
+# For development and debugging
+debugpy==1.8.1

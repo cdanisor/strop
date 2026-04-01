@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valve Control System</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="icon" href="favicon.png" type="image/png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container-fluid mt-3 mt-md-4">
+        <h1 class="text-center mb-3 mb-md-4">Valve Control System</h1>
+        
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-5 mb-4 mb-md-4">
+                <div class="card valve" id="valve1">
+                    <div class="card-header" id="header1">
+                        <h2 class="h4 mb-0 d-flex justify-content-between align-items-center">
+                            <span>Valve 1</span>
+                            <span class="badge bg-secondary" id="status-badge-1">Unknown</span>
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="controls mb-3">
+                            <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center gap-2 mb-3">
+                                <button class="btn btn-success btn-toggle flex-grow-1" data-valve="1" data-action="toggle">Activate</button>
+                                <div class="d-flex flex-column align-items-start">
+                                    <input type="number" class="form-control duration-input" id="duration1" placeholder="Duration (minutes)" min="0" step="1" style="max-width: 120px;">
+                                    <small class="form-text text-muted mt-1">Max 60 minutes</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <h5 class="mb-2">Recent Operations</h5>
+                            <div id="history1" class="history-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-5 mb-4 mb-md-4">
+                <div class="card valve" id="valve2">
+                    <div class="card-header" id="header2">
+                        <h2 class="h4 mb-0 d-flex justify-content-between align-items-center">
+                            <span>Valve 2</span>
+                            <span class="badge bg-secondary" id="status-badge-2">Unknown</span>
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="controls mb-3">
+                            <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center gap-2 mb-3">
+                                <button class="btn btn-success btn-toggle flex-grow-1" data-valve="2" data-action="toggle">Activate</button>
+                                <div class="d-flex flex-column align-items-start">
+                                    <input type="number" class="form-control duration-input" id="duration2" placeholder="Duration (minutes)" min="0" step="1" style="max-width: 120px;">
+                                    <small class="form-text text-muted mt-1">Max 60 minutes</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <h5 class="mb-2">Recent Operations</h5>
+                            <div id="history2" class="history-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+       <!-- Weather Forecast Section -->
+        <div class="row mt-4 mt-md-5">
+            <div class="col-12">
+                <h2 class="text-center mb-4">5-Day Weather Forecast</h2>
+                <div id="weather-cards" class="row justify-content-center">
+                    <!-- Weather cards will be populated here by JavaScript -->
+                </div>
+            </div>
+        </div>
+        
+        <div id="message-area" class="mt-4"></div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
