@@ -7,12 +7,18 @@ import atexit
 import signal
 import sys
 import time
+import logging
 from typing import Dict, Any
 from src.services.gpio_control_service import GPIOControlService
 from src.services.config_service import ConfigService
 from src.database import Database
 from src.services.weather.weather_service import WeatherService
 from src.services.weather.cron_scheduler import CronScheduler
+from src.services.valve_cron_scheduler import ValveCronScheduler
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class MainService:
     """Main service that coordinates all system components."""
@@ -25,6 +31,7 @@ class MainService:
         self.db = Database()
         self.weather_service = None
         self.scheduler = None
+        self.valve_scheduler = None
         
         # Register cleanup handler
         atexit.register(self.cleanup)
@@ -56,7 +63,12 @@ class MainService:
             # Start the weather update scheduler
             self.scheduler = CronScheduler()
             self.scheduler.start()
-            
+    
+            # Start the valve cron scheduler
+            self.valve_scheduler = ValveCronScheduler()
+            self.valve_scheduler.start(self.db, self)
+            logger.info("Valve cron scheduler started")
+    
             self.is_running = True
             return True
     
@@ -134,7 +146,11 @@ class MainService:
         """
         if self.is_running:
             try:
-                # Stop the scheduler
+                # Stop the valve scheduler first
+                if self.valve_scheduler:
+                    self.valve_scheduler.stop()
+      
+                # Stop the weather scheduler
                 if self.scheduler:
                     self.scheduler.stop()
       

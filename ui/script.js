@@ -90,6 +90,8 @@ $(document).ready(function() {
                     // If status changed, refresh history as well
                     if (statusChanged) {
                         getAllValveHistories();
+                        // Update usage when status changes
+                        getValveUsage();
                     }
                     // Update system status summary
                     updateSystemStatus();
@@ -116,6 +118,8 @@ $(document).ready(function() {
                 if (previousStatuses[valveId] !== data.status) {
                     previousStatuses[valveId] = data.status;
                     getAllValveHistories();
+                    // Update usage when status changes
+                    getValveUsage();
                 } else {
                     previousStatuses[valveId] = data.status;
                 }
@@ -270,6 +274,9 @@ $(document).ready(function() {
     // Set up auto-refresh every 10 seconds (only status refresh)
     setInterval(getAllValveStatus, 10000);
     
+    // Initialize valve histories
+    getAllValveHistories();
+    
     // Set initial button states with better error handling
     for (let valveId = 1; valveId <= 2; valveId++) {
         // Get initial status to set button text properly
@@ -287,6 +294,105 @@ $(document).ready(function() {
                 previousStatuses[valveId] = false;
             }
         });
+    }
+    
+    // Initialize cron schedule UI
+    initializeCronScheduleUI();
+    
+    // Function to initialize cron schedule UI
+    function initializeCronScheduleUI() {
+        // Load existing cron schedules when UI is initialized
+        for (let valveId = 1; valveId <= 2; valveId++) {
+            loadValveCronSchedule(valveId);
+        }
+        
+        // Add event handlers for save buttons
+        $('#save-cron1').on('click', function() {
+            saveValveCronSchedule(1);
+        });
+        
+        $('#save-cron2').on('click', function() {
+            saveValveCronSchedule(2);
+        });
+        
+        // Add event handlers for clear buttons
+        $('#clear-cron1').on('click', function() {
+            clearValveCronSchedule(1);
+        });
+        
+        $('#clear-cron2').on('click', function() {
+            clearValveCronSchedule(2);
+        });
+    }
+    
+    // Function to load valve cron schedule
+    function loadValveCronSchedule(valveId) {
+        $.ajax({
+            url: `${API_BASE_URL}/valves/${valveId}/cron`,
+            method: 'GET',
+            timeout: 10000, // 10 second timeout
+            success: function(data) {
+                if (data && data.cron) {
+                    const cron = data.cron;
+                    $(`#cron${valveId}`).val(cron.cron_expression || '');
+                    // Convert seconds back to minutes for display
+                    const durationMinutes = Math.floor((cron.duration || 60) / 60);
+                    $(`#duration${valveId}`).val(durationMinutes);
+                    $(`#enabled${valveId}`).prop('checked', cron.enabled || false);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(`Error loading cron schedule for valve ${valveId}:`, error);
+            }
+        });
+    }
+    
+    // Function to save valve cron schedule
+    function saveValveCronSchedule(valveId) {
+        const cronExpression = $(`#cron${valveId}`).val();
+        const durationMinutes = parseInt($(`#cron-duration${valveId}`).val()) || 1;
+        const enabled = $(`#enabled${valveId}`).is(':checked');
+        
+        if (!cronExpression) {
+            showMessage('Please enter a cron expression', 'error');
+            return;
+        }
+        
+        // Convert minutes to seconds for API
+        const durationSeconds = durationMinutes * 60;
+        
+        const payload = {
+            cron_expression: cronExpression,
+            duration: durationSeconds,
+            enabled: enabled
+        };
+        
+        $.ajax({
+            url: `${API_BASE_URL}/valves/${valveId}/cron`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            timeout: 10000, // 10 second timeout
+            success: function(data) {
+                showMessage(data.message || `Cron schedule saved for valve ${valveId}`, 'success');
+                // Reload the schedule to show updated values
+                loadValveCronSchedule(valveId);
+            },
+            error: function(xhr, status, error) {
+                const errorMessage = xhr.responseJSON ? xhr.responseJSON.message : error || 'Unknown error';
+                showMessage('Error saving cron schedule: ' + errorMessage, 'error');
+            }
+        });
+    }
+    
+    // Function to clear valve cron schedule
+    function clearValveCronSchedule(valveId) {
+        $(`#cron${valveId}`).val('');
+        $(`#cron-duration${valveId}`).val(1);  // Default to 1 minute
+        $(`#enabled${valveId}`).prop('checked', false);
+        
+        // Show status message
+        $(`#cron${valveId}-status`).html('<p class="text-muted">Schedule cleared</p>');
     }
     
     // Function to display valve history with better UX
@@ -415,9 +521,6 @@ $(document).ready(function() {
     
     // Debug: Log when valve usage is initialized
     console.log("Valve usage initialization complete");
-    
-    // Set up auto-refresh for valve usage every 30 seconds
-    setInterval(getValveUsage, 30000);
     
     // Remove auto-refresh for histories (no longer needed as it's triggered by status changes)
     // Previously: setInterval(getAllValveHistories, 30000);
@@ -624,14 +727,11 @@ $(document).ready(function() {
     }
     
     // Initialize weather forecast display
-    getWeatherForecast();
-    
-    // Set up auto-refresh for weather every 30 minutes
-    setInterval(getWeatherForecast, 1800000);
-    
-    // Set up auto-refresh for valve usage every 30 seconds
-    setInterval(getValveUsageForWeather, 30000);
-    
-    // Initialize valve usage data
-    getValveUsageForWeather();
+   getWeatherForecast();
+   
+   // Set up auto-refresh for weather every 30 minutes
+   setInterval(getWeatherForecast, 1800000);
+   
+   // Initialize valve usage data
+   getValveUsageForWeather();
 });

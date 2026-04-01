@@ -309,10 +309,10 @@ class APIService:
                 # Import database here to avoid circular imports
                 from src.database import Database
                 db = Database()
-                
+    
                 # Get all daily weather data
                 daily_weather = db.get_all_daily_weather_data()
-                
+    
                 if daily_weather:
                     return jsonify({
                         'daily': daily_weather
@@ -322,12 +322,95 @@ class APIService:
                         'success': False,
                         'message': 'No daily weather data available'
                     }), 404
-                 
+             
             except Exception as e:
                 logger.error(f"Error getting daily weather data: {e}")
                 return jsonify({
                     'success': False,
                     'message': f'Error getting daily weather data: {str(e)}'
+                }), 500
+        
+        # Route for getting valve cron schedules
+        @self.app.route('/api/valves/<int:valve_id>/cron', methods=['GET'])
+        def get_valve_cron(valve_id):
+            """Get cron schedule for a specific valve."""
+            try:
+                # Import database here to avoid circular imports
+                from src.database import Database
+                db = Database()
+    
+                # Validate valve ID
+                if valve_id not in [1, 2]:
+                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+    
+                # Get valve cron
+                cron = db.get_valve_cron(valve_id)
+    
+                if cron:
+                    return jsonify({
+                        'valve_id': valve_id,
+                        'cron': cron
+                    }), 200
+                else:
+                    return jsonify({
+                        'valve_id': valve_id,
+                        'cron': None
+                    }), 200
+    
+            except Exception as e:
+                logger.error(f"Error getting valve {valve_id} cron: {e}")
+                return jsonify({
+                    'success': False,
+                    'message': f'Error getting valve cron: {str(e)}'
+                }), 500
+        
+        # Route for setting valve cron schedule
+        @self.app.route('/api/valves/<int:valve_id>/cron', methods=['POST'])
+        def set_valve_cron(valve_id):
+            """Set cron schedule for a specific valve."""
+            try:
+                # Import database here to avoid circular imports
+                from src.database import Database
+                db = Database()
+    
+                # Validate valve ID
+                if valve_id not in [1, 2]:
+                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+    
+                # Get cron data from request
+                cron_data = request.json
+                if not cron_data:
+                    return jsonify({'error': 'No cron data provided'}), 400
+    
+                cron_expression = cron_data.get('cron_expression')
+                enabled = cron_data.get('enabled', True)
+                duration = cron_data.get('duration')
+    
+                if not cron_expression:
+                    return jsonify({'error': 'Cron expression is required'}), 400
+    
+                # Update valve cron
+                success = db.update_valve_cron(valve_id, cron_expression, enabled)
+    
+                if success:
+                    # If duration is provided, update it in the database
+                    if duration is not None:
+                        db.update_valve_cron_duration(valve_id, duration)
+                    return jsonify({
+                        'success': True,
+                        'message': f'Cron schedule set for valve {valve_id}'
+                    }), 200
+                else:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Failed to set cron schedule for valve {valve_id}'
+                    }), 500
+    
+            except Exception as e:
+                logger.error(f"Error setting valve {valve_id} cron: {e}")
+                return jsonify({
+                    'success': False,
+                    'message': f'Error setting valve cron: {str(e)}'
                 }), 500
     
         # Route for getting valve usage statistics

@@ -92,7 +92,8 @@ class Database:
                     cron_expression TEXT NOT NULL,
                     enabled BOOLEAN DEFAULT 1,
                     last_run DATETIME,
-                    next_run DATETIME
+                    next_run DATETIME,
+                    duration INTEGER
                 )
             ''')
             
@@ -471,21 +472,21 @@ class Database:
         
         Args:
             valve_id (int): ID of the valve (1 or 2)
-            
+    
         Returns:
             Dict[str, Any]: Valve cron schedule or None if not found
         """
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
+    
             cursor.execute('''
                 SELECT * FROM valve_cron WHERE valve_id = ?
             ''', (valve_id,))
-            
+    
             row = cursor.fetchone()
             conn.close()
-            
+    
             if row:
                 return {
                     'id': row['id'],
@@ -493,14 +494,45 @@ class Database:
                     'cron_expression': row['cron_expression'],
                     'enabled': bool(row['enabled']),
                     'last_run': row['last_run'],
-                    'next_run': row['next_run']
+                    'next_run': row['next_run'],
+                    'duration': row['duration'] if row['duration'] is not None else None
                 }
-            
+    
             return None
-            
+    
         except Exception as e:
             logger.error(f"Failed to retrieve valve cron: {e}")
             return None
+    
+    def update_valve_cron_duration(self, valve_id: int, duration: int) -> bool:
+        """
+        Update duration for a specific valve cron.
+        
+        Args:
+            valve_id (int): ID of the valve (1 or 2)
+            duration (int): Duration in seconds for the valve operation
+    
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+    
+            cursor.execute('''
+                UPDATE valve_cron
+                SET duration = ?
+                WHERE valve_id = ?
+            ''', (duration, valve_id))
+    
+            conn.commit()
+            conn.close()
+            logger.info(f"Valve cron duration updated: valve_id={valve_id}, duration={duration}")
+            return True
+    
+        except Exception as e:
+            logger.error(f"Failed to update valve cron duration: {e}")
+            return False
     
     def get_all_valve_crons(self) -> List[Dict[str, Any]]:
         """
@@ -512,30 +544,35 @@ class Database:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
+       
             cursor.execute('''
                 SELECT * FROM valve_cron ORDER BY valve_id
             ''')
-            
+       
             rows = cursor.fetchall()
             conn.close()
-            
+       
             # Convert rows to list of dictionaries
             crons = []
             for row in rows:
-                crons.append({
+                cron = {
                     'id': row['id'],
                     'valve_id': row['valve_id'],
                     'cron_expression': row['cron_expression'],
                     'enabled': bool(row['enabled']),
                     'last_run': row['last_run'],
-                    'next_run': row['next_run']
-                })
-            
+                    'next_run': row['next_run'],
+                    'duration': row['duration'] if row['duration'] is not None else None
+                }
+                crons.append(cron)
+       
+            logger.info(f"Retrieved {len(crons)} valve cron schedules from database")
             return crons
-            
+       
         except Exception as e:
             logger.error(f"Failed to retrieve all valve crons: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def update_system_config(self, config: Dict[str, Any]) -> bool:
@@ -550,14 +587,14 @@ class Database:
                 'default_duration': int,
                 'weather_update_interval': int
             }
-            
+    
         Returns:
             bool: True if update was successful, False otherwise
         """
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
+    
             # Insert or update system config (assuming only one config record)
             cursor.execute('''
                 INSERT OR REPLACE INTO system_config (id, api_key, location, default_duration, weather_update_interval)
@@ -568,12 +605,12 @@ class Database:
                 config.get('default_duration'),
                 config.get('weather_update_interval')
             ))
-            
+    
             conn.commit()
             conn.close()
             logger.info("System configuration updated successfully")
             return True
-            
+    
         except Exception as e:
             logger.error(f"Failed to update system configuration: {e}")
             return False
@@ -588,14 +625,14 @@ class Database:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
+       
             cursor.execute('''
                 SELECT * FROM system_config WHERE id = 1
             ''')
-            
+       
             row = cursor.fetchone()
             conn.close()
-            
+       
             if row:
                 return {
                     'id': row['id'],
@@ -604,12 +641,30 @@ class Database:
                     'default_duration': row['default_duration'],
                     'weather_update_interval': row['weather_update_interval']
                 }
-            
+       
             return None
-            
+       
         except Exception as e:
             logger.error(f"Failed to retrieve system configuration: {e}")
             return None
+    
+    def test_database_connection(self) -> bool:
+        """
+        Test if database connection is working properly.
+        
+        Returns:
+            bool: True if connection is working, False otherwise
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1')
+            conn.close()
+            logger.info("Database connection test successful")
+            return True
+        except Exception as e:
+            logger.error(f"Database connection test failed: {e}")
+            return False
     
     def create_session(self, session_id: str, user_id: int, ip_address: str, user_agent: str) -> bool:
         """
