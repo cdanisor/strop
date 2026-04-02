@@ -396,6 +396,43 @@ class APIService:
                     # If duration is provided, update it in the database
                     if duration is not None:
                         db.update_valve_cron_duration(valve_id, duration)
+                    # Calculate and set the next run date
+                    from apscheduler.triggers.cron import CronTrigger
+                    from datetime import datetime
+                    try:
+                        # Parse the cron expression to get the next run date
+                        trigger = CronTrigger.from_crontab(cron_expression)
+                        # Use the current time properly
+                        current_time = datetime.now()
+                        # Try to get next run time - the method signature is different
+                        # The correct signature is get_next_fire_time(previous_fire_time, now)
+                        # For the first run, we can pass None as previous_fire_time
+                        next_run = trigger.get_next_fire_time(None, current_time)
+                        # Update the next_run date in the database
+                        conn = db.get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute('''
+                            UPDATE valve_cron
+                            SET next_run = ?
+                            WHERE valve_id = ?
+                        ''', (next_run.isoformat(), valve_id))
+                        conn.commit()
+                        conn.close()
+                        logger.info(f"Set next run date for valve {valve_id}: {next_run}")
+                    except Exception as e:
+                        logger.error(f"Error calculating next run date for valve {valve_id}: {e}")
+                        # Even if there's an error, we still return success to avoid breaking the API
+                        # The scheduler will handle invalid cron expressions properly
+                    # Update the scheduler to respect the new cron
+                    try:
+                        # Import the main service to access the scheduler
+                        from src.main_service import main_service
+                        # Restart the scheduler to load the new cron
+                        if main_service.valve_scheduler:
+                            main_service.valve_scheduler._load_existing_crons()
+                        logger.info(f"New cron set for valve {valve_id}, scheduler reinitialized")
+                    except Exception as e:
+                        logger.error(f"Error updating scheduler with new cron for valve {valve_id}: {e}")
                     return jsonify({
                         'success': True,
                         'message': f'Cron schedule set for valve {valve_id}'

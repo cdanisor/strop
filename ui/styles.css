@@ -116,6 +116,7 @@ body {
 .history-container {
     max-height: 200px;
     overflow-y: auto;
+    min-height: 200px;
 }
 
 /* Ensure proper spacing for the entire layout */
@@ -127,7 +128,6 @@ body {
     margin-bottom: 20px;
 }
 
-/* Ensure proper spacing between valve sections */
 .card.valve {
     margin-bottom: 20px;
 }
@@ -273,6 +273,9 @@ body {
     border-radius: 4px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     min-width: 80px;
+    text-align: center;
+    position: relative;
+    z-index: 11;
 }
 
 /* Specific styling for each valve badge */
@@ -378,4 +381,16 @@ body {
 .cron-builder-group input[type="text"][readonly] {
     background-color: #e9ecef;
     cursor: default;
+}
+
+/* Fix for tab content shifting */
+.tab-content { min-height: 250px; }
+
+/* Ensure tab panes are properly hidden when not active */
+.tab-pane {
+    display: none;
+}
+
+.tab-pane.active {
+    display: block;
 }

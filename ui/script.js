@@ -93,8 +93,6 @@ $(document).ready(function() {
                         // Update usage when status changes
                         getValveUsage();
                     }
-                    // Update system status summary
-                    updateSystemStatus();
                 }
             },
             error: function(xhr, status, error) {
@@ -145,7 +143,7 @@ $(document).ready(function() {
         
         // Validate duration if provided
         if (durationValue !== null && (isNaN(durationValue) || durationValue < 0)) {
-            showMessage('Please enter a valid duration in minutes (non-negative number', 'error');
+            showMessage('Please enter a valid duration in minutes (non-negative number)', 'error');
             toggleBtn.prop('disabled', false).text(originalButtonText).removeClass('btn-secondary').addClass(originalButtonClass);
             return;
         }
@@ -260,7 +258,7 @@ $(document).ready(function() {
         
         // Validate and format the input value
         if (isNaN(durationValue) || durationValue < 0) {
-            showMessage('Please enter a valid duration in minutes (non-negative number', 'error');
+            showMessage('Please enter a valid duration in minutes (non-negative number)', 'error');
             durationInput.val(''); // Clear invalid input
         } else if (durationValue > 60) {
             showMessage('Duration cannot exceed 60 minutes', 'error');
@@ -668,50 +666,50 @@ $(document).ready(function() {
             
             if (hasData && forecastData) {
                 // Use the actual database fields from the forecast data
-                 const temp_min = Math.round(forecastData.temperature_minimum);
-                 const temp_max = Math.round(forecastData.temperature_maximum);
-                 const humidity = forecastData.average_humidity;
-                 const description = forecastData.description;
-                 const icon = getWeatherIcon(description);
-                 const total_rain = forecastData.total_rain;
-     
-                 // Show min and max temperatures for the day
-                 cardHtml += `
-                     <div class="weather-icon">${icon}</div>
-                     <p class="card-text min-temp">${temp_min}°C</p>
-                     <p class="card-text max-temp">${temp_max}°C</p>
-                     <p class="card-text">${humidity}% humidity</p>
-                 `;
-     
-                 // Add rain information if available - positioned in top-left corner
-                 if (total_rain !== undefined) {
-                     cardHtml += `
-                         <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
-                     `;
-                 }
-             
-                 // Add valve usage data in top-left corner (if available)
-                 if (window.weatherValveUsage) {
-                     // Create a container for valve usage badges
-                     let valveUsageContainer = '<div class="valve-usage-in-weather-card">';
-                     // Check for each valve (1 and 2)
-                     for (let valveId = 1; valveId <= 2; valveId++) {
-                         if (window.weatherValveUsage[valveId] && window.weatherValveUsage[valveId][dateString]) {
-                             const usageMinutes = window.weatherValveUsage[valveId][dateString];
-                             if (usageMinutes > 0) {
-                                 valveUsageContainer += `
-                                     <span class="valve-usage-badge" data-valve="${valveId}">
-                                             Valve ${valveId}: ${usageMinutes} min
-                                         </span>
-                                     `;
-                             }
-                         }
-                     }
-                     valveUsageContainer += '</div>';
-                     if (valveUsageContainer !== '<div class="valve-usage-in-weather-card"></div>') {
-                         cardHtml += valveUsageContainer;
-                     }
-                 }
+                const temp_min = Math.round(forecastData.temperature_minimum);
+                const temp_max = Math.round(forecastData.temperature_maximum);
+                const humidity = forecastData.average_humidity;
+                const description = forecastData.description;
+                const icon = getWeatherIcon(description);
+                const total_rain = forecastData.total_rain;
+    
+                // Show min and max temperatures for the day
+                cardHtml += `
+                    <div class="weather-icon">${icon}</div>
+                    <p class="card-text min-temp">${temp_min}°C</p>
+                    <p class="card-text max-temp">${temp_max}°C</p>
+                    <p class="card-text">${humidity}% humidity</p>
+                `;
+    
+                // Add rain information if available - positioned in top-left corner
+                if (total_rain !== undefined) {
+                    cardHtml += `
+                        <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
+                    `;
+                }
+            
+                // Add valve usage data in top-left corner (if available)
+                if (window.weatherValveUsage) {
+                    // Create a container for valve usage badges
+                    let valveUsageContainer = '<div class="valve-usage-in-weather-card">';
+                    // Check for each valve (1 and 2)
+                    for (let valveId = 1; valveId <= 2; valveId++) {
+                        if (window.weatherValveUsage[valveId] && window.weatherValveUsage[valveId][dateString]) {
+                            const usageMinutes = window.weatherValveUsage[valveId][dateString];
+                            if (usageMinutes > 0) {
+                                valveUsageContainer += `
+                                    <span class="valve-usage-badge" data-valve="${valveId}">
+                                            Valve ${valveId}: ${usageMinutes} min
+                                        </span>
+                                    `;
+                            }
+                        }
+                    }
+                    valveUsageContainer += '</div>';
+                    if (valveUsageContainer !== '<div class="valve-usage-in-weather-card"></div>') {
+                        cardHtml += valveUsageContainer;
+                    }
+                }
             } else {
                 // Empty card with placeholder
                 cardHtml += `
@@ -810,5 +808,25 @@ $(document).ready(function() {
         } else {
             console.error('CronBuilder class is not available');
         }
+    });
+    
+    // Ensure tabs are properly initialized after everything is loaded
+    $(window).on('load', function() {
+        // Make sure the first tab is active by default
+        $('.nav-tabs .nav-link').first().addClass('active');
+        $('.tab-pane').first().addClass('show');
+    });
+    
+    // Initialize tab functionality after document ready
+    $(document).ready(function() {
+        // Ensure the first tab is active by default
+        $('.nav-tabs .nav-link').first().addClass('active');
+        $('.tab-pane').first().addClass('show');
+        
+        // Handle tab switching properly
+        $('.nav-tabs a').on('click', function(e) {
+            e.preventDefault();
+            $(this).tab('show');
+        });
     });
 });

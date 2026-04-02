@@ -148,6 +148,8 @@ class MainService:
             try:
                 # Stop the valve scheduler first
                 if self.valve_scheduler:
+                    # Set a flag to prevent new jobs from being scheduled
+                    self.valve_scheduler.is_running = False
                     self.valve_scheduler.stop()
       
                 # Stop the weather scheduler
@@ -164,6 +166,16 @@ class MainService:
                 print(f"Error during cleanup: {e}")
                 # Even if there's an error, we should still set is_running to False
                 self.is_running = False
+                # Additional safeguard - ensure the valve scheduler is properly cleaned up
+                try:
+                    if self.valve_scheduler:
+                        self.valve_scheduler.is_running = False
+                except:
+                    # If we can't clean up the scheduler state, that's okay
+                    pass
+                # Ensure we don't leave the scheduler in a bad state
+                if self.valve_scheduler:
+                    self.valve_scheduler.is_running = False
     
     def _signal_handler(self, signum, frame):
         """

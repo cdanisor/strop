@@ -34,30 +34,40 @@
                             </div>
                         </div>
                         <div class="mt-2">
-                            <h5 class="mb-2">Recent Operations</h5>
-                            <div id="history1" class="history-container"></div>
-                        </div>
-                        <div class="mt-3">
-                            <h5 class="mb-2">Automation Schedule</h5>
-                            <div class="cron-schedule">
-                                <div class="form-group mb-2">
-                                    <label for="cron1">Cron Expression:</label>
-                                    <div id="cron1-builder"></div>
-                                </div>
-                                <div class="form-group mb-2">
-                                    <label for="cron-duration1">Duration (minutes):</label>
-                                    <input type="number" class="form-control" id="cron-duration1" placeholder="Duration in minutes" min="1" value="1">
-                                </div>
-                                <div class="form-group mb-2">
-                                    <div class="form-check">
-                                        <input type="checkbox" class="form-check-input" id="enabled1">
-                                        <label class="form-check-label" for="enabled1">Enable Schedule</label>
+                            <ul class="nav nav-tabs" id="valve1-tabs" role="tablist">
+                                <li class="nav-item">
+                                    <a class="nav-link active" data-bs-toggle="tab" href="#automation-schedule-1" role="tab">Automation Schedule</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" data-bs-toggle="tab" href="#recent-operations-1" role="tab">Recent Operations</a>
+                                </li>
+                            </ul>
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="automation-schedule-1" role="tabpanel">
+                                    <div class="cron-schedule">
+                                        <div class="form-group mb-2">
+                                            <label for="cron1">Cron Expression:</label>
+                                            <div id="cron1-builder"></div>
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <label for="cron-duration1">Duration (minutes):</label>
+                                            <input type="number" class="form-control" id="cron-duration1" placeholder="Duration in minutes" min="1" value="1">
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <div class="form-check">
+                                                <input type="checkbox" class="form-check-input" id="enabled1">
+                                                <label class="form-check-label" for="enabled1">Enable Schedule</label>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-primary" id="save-cron1">Save Schedule</button>
+                                        <button class="btn btn-secondary" id="clear-cron1">Clear Schedule</button>
                                     </div>
+                                    <div id="cron1-status" class="mt-2"></div>
                                 </div>
-                                <button class="btn btn-primary" id="save-cron1">Save Schedule</button>
-                                <button class="btn btn-secondary" id="clear-cron1">Clear Schedule</button>
+                                <div class="tab-pane fade" id="recent-operations-1" role="tabpanel">
+                                    <div id="history1" class="history-container"></div>
+                                </div>
                             </div>
-                            <div id="cron1-status" class="mt-2"></div>
                         </div>
                     </div>
                 </div>
@@ -82,30 +92,40 @@
                             </div>
                         </div>
                         <div class="mt-2">
-                            <h5 class="mb-2">Recent Operations</h5>
-                            <div id="history2" class="history-container"></div>
-                        </div>
-                        <div class="mt-3">
-                            <h5 class="mb-2">Automation Schedule</h5>
-                            <div class="cron-schedule">
-                                <div class="form-group mb-2">
-                                    <label for="cron2">Cron Expression:</label>
-                                    <div id="cron2-builder"></div>
-                                </div>
-                                <div class="form-group mb-2">
-                                    <label for="cron-duration2">Duration (minutes):</label>
-                                    <input type="number" class="form-control" id="cron-duration2" placeholder="Duration in minutes" min="1" value="1">
-                                </div>
-                                <div class="form-group mb-2">
-                                    <div class="form-check">
-                                        <input type="checkbox" class="form-check-input" id="enabled2">
-                                        <label class="form-check-label" for="enabled2">Enable Schedule</label>
+                            <ul class="nav nav-tabs" id="valve2-tabs" role="tablist">
+                                <li class="nav-item">
+                                    <a class="nav-link active" data-bs-toggle="tab" href="#automation-schedule-2" role="tab">Automation Schedule</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" data-bs-toggle="tab" href="#recent-operations-2" role="tab">Recent Operations</a>
+                                </li>
+                            </ul>
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="automation-schedule-2" role="tabpanel">
+                                    <div class="cron-schedule">
+                                        <div class="form-group mb-2">
+                                            <label for="cron2">Cron Expression:</label>
+                                            <div id="cron2-builder"></div>
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <label for="cron-duration2">Duration (minutes):</label>
+                                            <input type="number" class="form-control" id="cron-duration2" placeholder="Duration in minutes" min="1" value="1">
+                                        </div>
+                                        <div class="form-group mb-2">
+                                            <div class="form-check">
+                                                <input type="checkbox" class="form-check-input" id="enabled2">
+                                                <label class="form-check-label" for="enabled2">Enable Schedule</label>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-primary" id="save-cron2">Save Schedule</button>
+                                        <button class="btn btn-secondary" id="clear-cron2">Clear Schedule</button>
                                     </div>
+                                    <div id="cron2-status" class="mt-2"></div>
                                 </div>
-                                <button class="btn btn-primary" id="save-cron2">Save Schedule</button>
-                                <button class="btn btn-secondary" id="clear-cron2">Clear Schedule</button>
+                                <div class="tab-pane fade" id="recent-operations-2" role="tabpanel">
+                                    <div id="history2" class="history-container"></div>
+                                </div>
                             </div>
-                            <div id="cron2-status" class="mt-2"></div>
                         </div>
                     </div>
                 </div>
