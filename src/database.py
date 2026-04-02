@@ -354,23 +354,29 @@ class Database:
    
     def get_all_daily_weather_data(self) -> List[Dict[str, Any]]:
         """
-        Retrieve all daily weather data entries.
+        Retrieve all daily weather data entries, limited to no more than 6 days in the past.
         
         Returns:
-            List[Dict[str, Any]]: List of all daily weather data entries
+            List[Dict[str, Any]]: List of daily weather data entries (limited to 6 days)
         """
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
+        
+            # Get all weather data but limit to 6 days in the past
+            from datetime import datetime, timedelta
+            today = datetime.now().date()
+            six_days_ago = today - timedelta(days=6)
             
             cursor.execute('''
                 SELECT * FROM weather_data
+                WHERE date >= ?
                 ORDER BY date ASC
-            ''')
-            
+            ''', (six_days_ago.isoformat(),))
+        
             rows = cursor.fetchall()
             conn.close()
-            
+        
             # Convert rows to list of dictionaries
             daily_data = []
             for row in rows:
@@ -385,9 +391,9 @@ class Database:
                     'description': row['description'],
                     'total_rain': row['total_rain']
                 })
-            
+        
             return daily_data
-            
+        
         except Exception as e:
             logger.error(f"Failed to retrieve daily weather data: {e}")
             return []

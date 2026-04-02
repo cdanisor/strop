@@ -314,9 +314,23 @@ class APIService:
                 # Get all daily weather data
                 daily_weather = db.get_all_daily_weather_data()
     
-                if daily_weather:
+                # Limit to no more than 6 days in the past
+                from datetime import datetime, timedelta
+                today = datetime.now().date()
+                limited_weather = []
+                
+                for data in daily_weather:
+                    # Parse the date from the data (assuming it's in YYYY-MM-DD format)
+                    data_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+                    # Calculate the difference in days from today
+                    days_diff = (today - data_date).days
+                    # Only include data from the last 6 days (including today)
+                    if days_diff <= 6:
+                        limited_weather.append(data)
+    
+                if limited_weather:
                     return jsonify({
-                        'daily': daily_weather
+                        'daily': limited_weather
                     }), 200
                 else:
                     return jsonify({
@@ -454,16 +468,16 @@ class APIService:
         # Route for getting valve usage statistics
         @self.app.route('/api/valves/usage', methods=['GET'])
         def get_valve_usage():
-            """Get valve usage statistics for the last 7 days including today."""
+            """Get valve usage statistics for the last 8 days including today."""
             try:
                 # Import database here to avoid circular imports
                 from src.database import Database
                 db = Database()
              
-                # Get valve logs for the last 7 days (including today)
+                # Get valve logs for the last 8 days (including today)
                 from datetime import datetime, timedelta
                 end_date = datetime.now()
-                start_date = end_date - timedelta(days=7)
+                start_date = end_date - timedelta(days=8)
              
                 # Get all valve logs for the last 7 days
                 logs = db.get_valve_logs(limit=1000)  # Get a reasonable number of logs

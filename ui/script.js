@@ -643,11 +643,11 @@ $(document).ready(function() {
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
         
-        // Create 11 cards: 5 for past, 1 for current, 5 for future
+        // Create 12 cards: 6 for past, 1 for current, 5 for future
         const cards = [];
         
-        // Add 5 past days (including today)
-        for (let i = 5; i >= 0; i--) {
+        // Add 6 past days (including today)
+        for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
             date.setUTCDate(today.getUTCDate() - i);
             cards.push({ date: date, index: i, type: 'past' });
