@@ -444,24 +444,40 @@ class Database:
             valve_id (int): ID of the valve (1 or 2)
             cron_expression (str): Cron expression for scheduling
             enabled (bool): Whether the schedule is active
-            
+        
         Returns:
             bool: True if update was successful, False otherwise
         """
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
+        
+            # First, check if a record already exists for this valve
             cursor.execute('''
-                INSERT OR REPLACE INTO valve_cron (valve_id, cron_expression, enabled, last_run, next_run)
-                VALUES (?, ?, ?, NULL, NULL)
-            ''', (valve_id, cron_expression, enabled))
+                SELECT id FROM valve_cron WHERE valve_id = ?
+            ''', (valve_id,))
             
+            existing_record = cursor.fetchone()
+            
+            if existing_record:
+                # Update existing record
+                cursor.execute('''
+                    UPDATE valve_cron
+                    SET cron_expression = ?, enabled = ?, last_run = NULL, next_run = NULL
+                    WHERE valve_id = ?
+                ''', (cron_expression, enabled, valve_id))
+            else:
+                # Insert new record
+                cursor.execute('''
+                    INSERT INTO valve_cron (valve_id, cron_expression, enabled, last_run, next_run)
+                    VALUES (?, ?, ?, NULL, NULL)
+                ''', (valve_id, cron_expression, enabled))
+        
             conn.commit()
             conn.close()
             logger.info(f"Valve cron updated: valve_id={valve_id}, cron_expression={cron_expression}, enabled={enabled}")
             return True
-            
+        
         except Exception as e:
             logger.error(f"Failed to update valve cron: {e}")
             return False
@@ -488,6 +504,8 @@ class Database:
             conn.close()
     
             if row:
+                # Handle case where duration might be NULL
+                duration = row['duration'] if row['duration'] is not None else None
                 return {
                     'id': row['id'],
                     'valve_id': row['valve_id'],
@@ -495,7 +513,7 @@ class Database:
                     'enabled': bool(row['enabled']),
                     'last_run': row['last_run'],
                     'next_run': row['next_run'],
-                    'duration': row['duration'] if row['duration'] is not None else None
+                    'duration': duration
                 }
     
             return None
@@ -511,25 +529,40 @@ class Database:
         Args:
             valve_id (int): ID of the valve (1 or 2)
             duration (int): Duration in seconds for the valve operation
-    
+        
         Returns:
             bool: True if update was successful, False otherwise
         """
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-    
+        
+            # First check if a record exists for this valve
             cursor.execute('''
-                UPDATE valve_cron
-                SET duration = ?
-                WHERE valve_id = ?
-            ''', (duration, valve_id))
-    
+                SELECT id FROM valve_cron WHERE valve_id = ?
+            ''', (valve_id,))
+            
+            existing_record = cursor.fetchone()
+            
+            if existing_record:
+                # Update existing record
+                cursor.execute('''
+                    UPDATE valve_cron
+                    SET duration = ?
+                    WHERE valve_id = ?
+                ''', (duration, valve_id))
+            else:
+                # Insert new record with duration
+                cursor.execute('''
+                    INSERT INTO valve_cron (valve_id, cron_expression, enabled, last_run, next_run, duration)
+                    VALUES (?, '', 0, NULL, NULL, ?)
+                ''', (valve_id, duration))
+        
             conn.commit()
             conn.close()
             logger.info(f"Valve cron duration updated: valve_id={valve_id}, duration={duration}")
             return True
-    
+        
         except Exception as e:
             logger.error(f"Failed to update valve cron duration: {e}")
             return False

@@ -254,7 +254,7 @@ $(document).ready(function() {
     
     // Handle duration input blur for validation
     $('.duration-input').on('blur', function() {
-        const valveId = parseInt($(this).attr('id').replace('duration', ''));
+        const valveId = parseInt($(this).attr('id').replace('duration', '')); 
         const durationValue = parseInt($(this).val());
         const durationInput = $(this);
         
@@ -301,6 +301,10 @@ $(document).ready(function() {
     
     // Function to initialize cron schedule UI
     function initializeCronScheduleUI() {
+        // Initialize cron builder components for both valves
+        initializeCronBuilder(1);
+        initializeCronBuilder(2);
+        
         // Load existing cron schedules when UI is initialized
         for (let valveId = 1; valveId <= 2; valveId++) {
             loadValveCronSchedule(valveId);
@@ -332,12 +336,17 @@ $(document).ready(function() {
             method: 'GET',
             timeout: 10000, // 10 second timeout
             success: function(data) {
+                console.log(`Data returned for valve ${valveId}:`, data); // Debug log
                 if (data && data.cron) {
                     const cron = data.cron;
-                    $(`#cron${valveId}`).val(cron.cron_expression || '');
+                    console.log(`Cron data for valve ${valveId}:`, cron); // Debug log
+                    // Set the cron expression in the builder
+                    if (window.cronBuilder && window.cronBuilder[valveId]) {
+                        window.cronBuilder[valveId].setExpression(cron.cron_expression || '');
+                    }
                     // Convert seconds back to minutes for display
                     const durationMinutes = Math.floor((cron.duration || 60) / 60);
-                    $(`#duration${valveId}`).val(durationMinutes);
+                    $(`#cron-duration${valveId}`).val(durationMinutes);
                     $(`#enabled${valveId}`).prop('checked', cron.enabled || false);
                 }
             },
@@ -349,7 +358,15 @@ $(document).ready(function() {
     
     // Function to save valve cron schedule
     function saveValveCronSchedule(valveId) {
-        const cronExpression = $(`#cron${valveId}`).val();
+        // Get the cron expression from the builder if it exists
+        let cronExpression = '';
+        if (window.cronBuilder && window.cronBuilder[valveId]) {
+            cronExpression = window.cronBuilder[valveId].getExpression();
+        } else {
+            // Fallback to the original input field (should not happen with proper initialization)
+            cronExpression = $(`#cron${valveId}`).val();
+        }
+        
         const durationMinutes = parseInt($(`#cron-duration${valveId}`).val()) || 1;
         const enabled = $(`#enabled${valveId}`).is(':checked');
         
@@ -387,7 +404,12 @@ $(document).ready(function() {
     
     // Function to clear valve cron schedule
     function clearValveCronSchedule(valveId) {
-        $(`#cron${valveId}`).val('');
+        // Clear the cron builder (if it exists)
+        if (window.cronBuilder && window.cronBuilder[valveId]) {
+            window.cronBuilder[valveId].reset();
+        }
+        
+        // Clear the duration input
         $(`#cron-duration${valveId}`).val(1);  // Default to 1 minute
         $(`#enabled${valveId}`).prop('checked', false);
         
@@ -610,7 +632,7 @@ $(document).ready(function() {
             const monthName = date.toLocaleDateString('en-US', { month: 'short' });
             const dayNumber = date.getDate();
     
-            // Find matching forecast data for this date
+            // Find matching forecast data for this date (we'll match by date string)
             let forecastData = null;
             let hasData = false;
     
@@ -639,7 +661,7 @@ $(document).ready(function() {
                             <h5 class="card-title">${dayName}</h5>
                             <p class="card-text">${monthName} ${dayNumber}</p>
             `;
-        
+            
             if (hasData && forecastData) {
                 // Use the actual database fields from the forecast data
                  const temp_min = Math.round(forecastData.temperature_minimum);
@@ -648,7 +670,7 @@ $(document).ready(function() {
                  const description = forecastData.description;
                  const icon = getWeatherIcon(description);
                  const total_rain = forecastData.total_rain;
-                
+     
                  // Show min and max temperatures for the day
                  cardHtml += `
                      <div class="weather-icon">${icon}</div>
@@ -656,14 +678,14 @@ $(document).ready(function() {
                      <p class="card-text max-temp">${temp_max}°C</p>
                      <p class="card-text">${humidity}% humidity</p>
                  `;
-              
+     
                  // Add rain information if available - positioned in top-left corner
                  if (total_rain !== undefined) {
                      cardHtml += `
                          <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
                      `;
                  }
-                 
+             
                  // Add valve usage data in top-left corner (if available)
                  if (window.weatherValveUsage) {
                      // Create a container for valve usage badges
@@ -675,9 +697,9 @@ $(document).ready(function() {
                              if (usageMinutes > 0) {
                                  valveUsageContainer += `
                                      <span class="valve-usage-badge" data-valve="${valveId}">
-                                         Valve ${valveId}: ${usageMinutes} min
-                                     </span>
-                                 `;
+                                             Valve ${valveId}: ${usageMinutes} min
+                                         </span>
+                                     `;
                              }
                          }
                      }
@@ -693,13 +715,13 @@ $(document).ready(function() {
                     <p class="card-text text-muted">No data</p>
                 `;
             }
-        
+            
             cardHtml += `
                         </div>
                     </div>
                 </div>
             `;
-        
+            
             weatherCardsContainer.append(cardHtml);
         });
     }
@@ -727,11 +749,62 @@ $(document).ready(function() {
     }
     
     // Initialize weather forecast display
-   getWeatherForecast();
-   
-   // Set up auto-refresh for weather every 30 minutes
-   setInterval(getWeatherForecast, 1800000);
-   
-   // Initialize valve usage data
-   getValveUsageForWeather();
+    getWeatherForecast();
+    
+    // Set up auto-refresh for weather every 30 minutes
+    setInterval(getWeatherForecast, 1800000);
+    
+    // Initialize valve usage data
+    getValveUsageForWeather();
+    
+    // Initialize cron builder components
+    function initializeCronBuilder(valveId) {
+        // Check if the container exists
+        const container = document.getElementById(`cron${valveId}-builder`);
+        if (!container) {
+            console.error(`Container for cron builder ${valveId} not found`);
+            return;
+        }
+        
+        // Create new cron builder instance with unique builder ID
+        window.cronBuilder = window.cronBuilder || {};
+        try {
+            window.cronBuilder[valveId] = new CronBuilder(`cron${valveId}-builder`, valveId);
+            console.log(`Cron builder ${valveId} initialized successfully`);
+        } catch (e) {
+            console.error(`Failed to initialize cron builder ${valveId}:`, e);
+            return;
+        }
+        
+        if (window.cronBuilder[valveId]) {
+            console.log(`Cron builder ${valveId} initialized successfully`);
+        } else {
+            console.error(`Failed to initialize cron builder ${valveId}`);
+        }
+        
+        // When cron expression is applied, update the hidden input field
+        // This is needed to maintain compatibility with existing API calls
+        const cronExpressionInput = $(`#cron${valveId}`);
+        const cronBuilderInstance = window.cronBuilder[valveId];
+        
+        // Set the initial value if it exists
+        if (cronExpressionInput.val()) {
+            cronBuilderInstance.setExpression(cronExpressionInput.val());
+        }
+        
+        // Add event listener to update the hidden input when expression changes
+        // This is a bit tricky since we don't have direct access to the builder's internal methods
+        // But we can make sure the hidden input is updated when needed
+    }
+    
+    // Initialize cron builder for both valves after page load
+    $(document).ready(function() {
+        // Make sure the cron builder is initialized properly
+        if (typeof window.CronBuilder !== 'undefined') {
+            initializeCronBuilder(1);
+            initializeCronBuilder(2);
+        } else {
+            console.error('CronBuilder class is not available');
+        }
+    });
 });

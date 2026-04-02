@@ -63,11 +63,11 @@ class ValveCronScheduler:
             if self.db is None:
                 logger.warning("Database not initialized, cannot load existing crons")
                 return
-    
+        
             # Get all enabled valve cron schedules
             crons = self.db.get_all_valve_crons()
             logger.info(f"Loading {len(crons)} existing valve cron schedules")
-    
+        
             if not crons:
                 logger.info("No cron schedules found in database")
             else:
@@ -76,7 +76,7 @@ class ValveCronScheduler:
                         self._add_cron_job(cron)
                     else:
                         logger.info(f"Skipping disabled cron for valve {cron['valve_id']}")
-    
+        
         except Exception as e:
             logger.error(f"Error loading existing crons: {e}")
             import traceback
@@ -89,15 +89,14 @@ class ValveCronScheduler:
             cron_expression = cron_data['cron_expression']
             duration = cron_data['duration'] if cron_data['duration'] is not None else 60  # Default 60 seconds if not set
             job_id = f"valve_{valve_id}_cron"
-            
+       
             # Remove existing job if it exists
             if job_id in self.valve_cron_jobs:
                 self.scheduler.remove_job(job_id)
                 logger.info(f"Removed existing job for valve {valve_id} before adding new one")
-            
+       
             # Add new job with cron expression
             # APScheduler expects cron parameters directly
-            # We need to parse the cron expression and pass it as parameters
             cron_params = self._parse_cron_expression(cron_expression)
             self.scheduler.add_job(
                 func=self._run_valve_activation,
@@ -109,15 +108,15 @@ class ValveCronScheduler:
                 },
                 **cron_params
             )
-            
+       
             self.valve_cron_jobs[job_id] = {
                 'valve_id': valve_id,
                 'cron_expression': cron_expression,
                 'duration': duration
             }
-            
+       
             logger.info(f"Added cron job for valve {valve_id}: {cron_expression} with duration {duration}s")
-            
+       
         except Exception as e:
             logger.error(f"Error adding cron job for valve {cron_data['valve_id']}: {e}")
     
@@ -130,12 +129,12 @@ class ValveCronScheduler:
         try:
             # Split the cron expression into its components
             parts = cron_expression.strip().split()
-            
+       
             # Standard cron format: minute hour day month day_of_week
             # If we have 5 parts, it's standard cron
             if len(parts) == 5:
                 minute, hour, day, month, day_of_week = parts
-                
+       
                 # Return parameters for APScheduler
                 return {
                     'minute': minute,
@@ -156,19 +155,19 @@ class ValveCronScheduler:
         """Run the valve activation for a specific valve with duration."""
         try:
             logger.info(f"Running scheduled activation for valve {valve_id} for {duration} seconds")
-            
+       
             if self.main_service is None:
                 logger.error("Main service not initialized, cannot activate valve")
                 return
-        
+       
             # Activate the valve with specified duration
             success = self.main_service.activate_valve(valve_id, duration)
-        
+       
             if success:
                 logger.info(f"Successfully activated valve {valve_id} for {duration} seconds")
             else:
                 logger.error(f"Failed to activate valve {valve_id} for {duration} seconds")
-        
+       
         except Exception as e:
             logger.error(f"Error in valve activation: {e}")
     
@@ -180,11 +179,11 @@ class ValveCronScheduler:
             if not success:
                 logger.error(f"Failed to save cron schedule for valve {valve_id} in database")
                 return False
-         	
+   
             # Update the duration in database if provided
             if duration is not None:
                 self.db.update_valve_cron_duration(valve_id, duration)
-         	
+   
             # If we're updating an existing cron, disable the current job first
             job_id = f"valve_{valve_id}_cron"
             if job_id in self.valve_cron_jobs:
@@ -193,7 +192,7 @@ class ValveCronScheduler:
                 logger.info(f"Removed existing cron job for valve {valve_id} before adding new one")
                 # Remove from tracking
                 del self.valve_cron_jobs[job_id]
-         	
+   
             # Add to scheduler if enabled and valid
             if enabled and cron_expression:
                 cron_data = {
@@ -208,7 +207,7 @@ class ValveCronScheduler:
             else:
                 logger.info(f"Skipped adding cron schedule for valve {valve_id} (disabled or invalid)")
                 return True  # Not an error, just not added
-         	
+   
         except Exception as e:
             logger.error(f"Error adding valve cron schedule: {e}")
             return False
@@ -222,14 +221,14 @@ class ValveCronScheduler:
                 self.scheduler.remove_job(job_id)
                 del self.valve_cron_jobs[job_id]
                 logger.info(f"Removed cron job for valve {valve_id} from scheduler")
-            
+   
             # Remove from database (set enabled to False)
             success = self.db.update_valve_cron(valve_id, "", False)
             if success:
                 logger.info(f"Disabled cron schedule for valve {valve_id} in database")
             else:
                 logger.warning(f"Failed to disable cron schedule for valve {valve_id} in database")
-                
+   
             return True
         except Exception as e:
             logger.error(f"Error removing valve cron schedule: {e}")
