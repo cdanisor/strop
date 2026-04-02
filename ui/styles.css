@@ -2,6 +2,253 @@
 body {
     background-color: #f5f5f5;
     color: #333;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark mode styles */
+body.dark-mode {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+}
+
+body.dark-mode .card.valve {
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border-color: #444;
+}
+
+body.dark-mode .card-header {
+    background-color: #333;
+    color: #e0e0e0;
+}
+
+body.dark-mode .card-header.active {
+    background-color: #27ae60;
+}
+
+body.dark-mode .card-header.inactive {
+    background-color: #e74c3c;
+}
+
+body.dark-mode .btn-toggle {
+    background-color: #444;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .btn-toggle:hover {
+    background-color: #555;
+    border-color: #666;
+}
+
+body.dark-mode .btn-toggle.btn-success {
+    background-color: #27ae60;
+    border-color: #27ae60;
+}
+
+body.dark-mode .btn-toggle.btn-danger {
+    background-color: #e74c3c;
+    border-color: #e74c3c;
+}
+
+body.dark-mode .form-control {
+    background-color: #333;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .form-control::placeholder {
+    color: #888;
+}
+
+body.dark-mode .form-check-input {
+    background-color: #333;
+    border-color: #555;
+}
+
+body.dark-mode .form-check-input:checked {
+    background-color: #27ae60;
+    border-color: #27ae60;
+}
+
+body.dark-mode .form-text {
+    color: #aaa;
+}
+
+body.dark-mode label {
+    color: #e0e0e0;
+}
+
+body.dark-mode .text-muted {
+    color: #aaa !important;
+}
+
+body.dark-mode .nav-tabs .nav-link {
+    color: #aaa;
+    border-color: #444;
+}
+
+body.dark-mode .nav-tabs .nav-link.active {
+    color: #e0e0e0;
+    border-color: #27ae60;
+    border-bottom-color: #27ae60;
+    background-color: #2d2d2d;
+}
+
+body.dark-mode .nav-tabs .nav-link {
+    color: #aaa;
+    border-color: #444;
+}
+
+body.dark-mode .nav-tabs .nav-link:hover {
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .tab-content {
+    background-color: #2d2d2d;
+    border-color: #444;
+}
+
+body.dark-mode .nav-tabs {
+    border-color: #444;
+}
+
+body.dark-mode .nav-tabs .nav-link {
+    border-color: #444;
+}
+
+body.dark-mode .nav-tabs .nav-link:hover {
+    border-color: #555;
+}
+
+body.dark-mode .cron-builder-container {
+    background-color: #333;
+    border-color: #444;
+}
+
+body.dark-mode .cron-builder-group select,
+body.dark-mode .cron-builder-group input {
+    background-color: #444;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .cron-builder-group input[readonly] {
+    background-color: #333;
+}
+
+body.dark-mode .cron-builder-group select[multiple] {
+    background-color: #444;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .cron-builder-group select[multiple] option {
+    background-color: #333;
+    color: #e0e0e0;
+}
+
+body.dark-mode .cron-builder-group select[multiple] option:checked {
+    background-color: #27ae60;
+    color: #fff;
+}
+
+body.dark-mode .cron-builder-group select[multiple] option:hover {
+    background-color: #555;
+}
+
+body.dark-mode .list-group-item {
+    background-color: #333;
+    color: #e0e0e0;
+    border-color: #444;
+}
+
+body.dark-mode .weather-card {
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border-color: #444;
+}
+
+body.dark-mode .weather-card.current-day {
+    background-color: #2d2d2d;
+    border-color: #3498db;
+}
+
+body.dark-mode .weather-card .card-title {
+    color: #e0e0e0;
+}
+
+body.dark-mode .weather-card .card-text {
+    color: #e0e0e0;
+}
+
+body.dark-mode .min-temp {
+    color: #aaa;
+}
+
+body.dark-mode .max-temp {
+    color: #e0e0e0;
+}
+
+body.dark-mode .rain-info {
+    background-color: rgba(52, 152, 219, 0.2);
+    color: #3498db;
+}
+
+body.dark-mode .valve-usage-badge {
+    background-color: #e74c3c;
+    color: #8B0000;
+    border: 1px solid #f1c40f;
+}
+
+body.dark-mode .next-run-badge {
+    background-color: #3ce74c;
+    color: #008B00;
+    border: 1px solid #f1c40f;
+}
+
+body.dark-mode .cron-builder-container {
+    background-color: #333;
+    border-color: #444;
+}
+
+body.dark-mode .cron-builder-group select,
+body.dark-mode .cron-builder-group input {
+    background-color: #444;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode .cron-builder-group input[readonly] {
+    background-color: #333;
+}
+
+body.dark-mode .next-runs-section {
+    border-color: #444;
+}
+
+body.dark-mode .next-runs-section li {
+    background-color: #333;
+    border-left-color: #3498db;
+}
+
+body.dark-mode #message-area {
+    background-color: #333;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+body.dark-mode #message-area.success {
+    background-color: #27ae60;
+    color: #000;
+    border-color: #27ae60;
+}
+
+body.dark-mode #message-area.error {
+    background-color: #e74c3c;
+    color: #000;
+    border-color: #e74c3c;
 }
 
 /* Card styling with better visual feedback */

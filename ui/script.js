@@ -5,6 +5,65 @@ $(document).ready(function() {
         API_BASE_URL = 'http://localhost:5000/api';
     }
     
+    // Initialize dark mode based on localStorage or system preference
+    function initializeDarkMode() {
+        const savedMode = localStorage.getItem('darkMode');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        if (savedMode !== null) {
+            // Use saved preference
+            if (savedMode === 'true') {
+                enableDarkMode();
+            } else {
+                disableDarkMode();
+            }
+        } else if (prefersDark) {
+            // Use system preference
+            enableDarkMode();
+        }
+    }
+    
+    // Enable dark mode
+    function enableDarkMode() {
+        $('body').addClass('dark-mode');
+        localStorage.setItem('darkMode', 'true');
+        updateDarkModeIcon();
+    }
+    
+    // Disable dark mode
+    function disableDarkMode() {
+        $('body').removeClass('dark-mode');
+        localStorage.setItem('darkMode', 'false');
+        updateDarkModeIcon();
+    }
+    
+    // Update the dark mode toggle icon
+    function updateDarkModeIcon() {
+        const isDarkMode = $('body').hasClass('dark-mode');
+        if (isDarkMode) {
+            $('.dark-mode-icon').show();
+            $('.light-mode-icon').hide();
+        } else {
+            $('.light-mode-icon').show();
+            $('.dark-mode-icon').hide();
+        }
+    }
+    
+    // Toggle dark mode
+    $('#dark-mode-toggle').on('click', function() {
+        if ($('body').hasClass('dark-mode')) {
+            disableDarkMode();
+        } else {
+            enableDarkMode();
+        }
+    });
+    
+    // Initialize dark mode on page load
+    initializeDarkMode();
+    
+    // Update icon when dark mode changes
+    updateDarkModeIcon();
+    
     // Store previous statuses to detect changes
     let previousStatuses = {};
     

@@ -45,10 +45,20 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
             # Read the index.html file
             filepath = os.path.join(DIRECTORY, 'index.html')
             if os.path.exists(filepath):
-                with open(filepath, 'r') as f:
-                    content = f.read()
-              
-
+                try:
+                    with open(filepath, 'r') as f:
+                        content = f.read()
+                except UnicodeDecodeError:
+                    # If we can't read as text, serve as binary
+                    with open(filepath, 'rb') as f:
+                        content = f.read()
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
+               
+ 
                 api_injection_script = f"""
                 <script>
                     if (typeof API_BASE_URL === 'undefined') {{
@@ -58,7 +68,7 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
                 """
                 # Inject the script before the first script tag
                 content = content.replace('<script src="script.js"></script>', f'{api_injection_script}<script src="script.js"></script>')
-              
+               
                 # Send response
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html')
