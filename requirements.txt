@@ -14,7 +14,7 @@ RPi.GPIO==0.7.1
 requests==2.31.0
 
 # For cron scheduling
-schedule==1.2.1
+apscheduler==3.10.4
 
 # For environment variables management
 python-dotenv==1.0.0

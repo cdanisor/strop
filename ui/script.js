@@ -90,9 +90,9 @@ $(document).ready(function() {
                     // If status changed, refresh history as well
                     if (statusChanged) {
                         getAllValveHistories();
+                        // Update usage when status changes
+                        getValveUsage();
                     }
-                    // Update system status summary
-                    updateSystemStatus();
                 }
             },
             error: function(xhr, status, error) {
@@ -116,6 +116,8 @@ $(document).ready(function() {
                 if (previousStatuses[valveId] !== data.status) {
                     previousStatuses[valveId] = data.status;
                     getAllValveHistories();
+                    // Update usage when status changes
+                    getValveUsage();
                 } else {
                     previousStatuses[valveId] = data.status;
                 }
@@ -141,7 +143,7 @@ $(document).ready(function() {
         
         // Validate duration if provided
         if (durationValue !== null && (isNaN(durationValue) || durationValue < 0)) {
-            showMessage('Please enter a valid duration in minutes (non-negative number', 'error');
+            showMessage('Please enter a valid duration in minutes (non-negative number)', 'error');
             toggleBtn.prop('disabled', false).text(originalButtonText).removeClass('btn-secondary').addClass(originalButtonClass);
             return;
         }
@@ -250,13 +252,13 @@ $(document).ready(function() {
     
     // Handle duration input blur for validation
     $('.duration-input').on('blur', function() {
-        const valveId = parseInt($(this).attr('id').replace('duration', ''));
+        const valveId = parseInt($(this).attr('id').replace('duration', '')); 
         const durationValue = parseInt($(this).val());
         const durationInput = $(this);
         
         // Validate and format the input value
         if (isNaN(durationValue) || durationValue < 0) {
-            showMessage('Please enter a valid duration in minutes (non-negative number', 'error');
+            showMessage('Please enter a valid duration in minutes (non-negative number)', 'error');
             durationInput.val(''); // Clear invalid input
         } else if (durationValue > 60) {
             showMessage('Duration cannot exceed 60 minutes', 'error');
@@ -269,6 +271,9 @@ $(document).ready(function() {
     
     // Set up auto-refresh every 10 seconds (only status refresh)
     setInterval(getAllValveStatus, 10000);
+    
+    // Initialize valve histories
+    getAllValveHistories();
     
     // Set initial button states with better error handling
     for (let valveId = 1; valveId <= 2; valveId++) {
@@ -287,6 +292,131 @@ $(document).ready(function() {
                 previousStatuses[valveId] = false;
             }
         });
+    }
+    
+    // Initialize cron schedule UI
+    initializeCronScheduleUI();
+    
+    // Function to initialize cron schedule UI
+    function initializeCronScheduleUI() {
+        // Initialize cron builder components for both valves
+        initializeCronBuilder(1);
+        initializeCronBuilder(2);
+        
+        // Load existing cron schedules when UI is initialized
+        for (let valveId = 1; valveId <= 2; valveId++) {
+            loadValveCronSchedule(valveId);
+        }
+        
+        // Add event handlers for save buttons
+        $('#save-cron1').on('click', function() {
+            saveValveCronSchedule(1);
+        });
+        
+        $('#save-cron2').on('click', function() {
+            saveValveCronSchedule(2);
+        });
+        
+        // Add event handlers for clear buttons
+        $('#clear-cron1').on('click', function() {
+            clearValveCronSchedule(1);
+        });
+        
+        $('#clear-cron2').on('click', function() {
+            clearValveCronSchedule(2);
+        });
+    }
+    
+    // Function to load valve cron schedule
+    function loadValveCronSchedule(valveId) {
+        $.ajax({
+            url: `${API_BASE_URL}/valves/${valveId}/cron`,
+            method: 'GET',
+            timeout: 10000, // 10 second timeout
+            success: function(data) {
+                console.log(`Data returned for valve ${valveId}:`, data); // Debug log
+                if (data && data.cron) {
+                    const cron = data.cron;
+                    console.log(`Cron data for valve ${valveId}:`, cron); // Debug log
+                    // Set the cron expression in the builder
+                    if (window.cronBuilder && window.cronBuilder[valveId]) {
+                        window.cronBuilder[valveId].setExpression(cron.cron_expression || '');
+                    }
+                    // Convert seconds back to minutes for display
+                    const durationMinutes = Math.floor((cron.duration || 60) / 60);
+                    $(`#cron-duration${valveId}`).val(durationMinutes);
+                    $(`#enabled${valveId}`).prop('checked', cron.enabled || false);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log(`Error loading cron schedule for valve ${valveId}:`, error);
+                // If there's an error, we should still try to initialize the cron builder
+                if (window.cronBuilder && window.cronBuilder[valveId]) {
+                    window.cronBuilder[valveId].setExpression('');
+                }
+            }
+        });
+    }
+    
+    // Function to save valve cron schedule
+    function saveValveCronSchedule(valveId) {
+        // Get the cron expression from the builder if it exists
+        let cronExpression = '';
+        if (window.cronBuilder && window.cronBuilder[valveId]) {
+            cronExpression = window.cronBuilder[valveId].getExpression();
+        } else {
+            // Fallback to the original input field (should not happen with proper initialization)
+            cronExpression = $(`#cron${valveId}`).val();
+        }
+        
+        const durationMinutes = parseInt($(`#cron-duration${valveId}`).val()) || 1;
+        const enabled = $(`#enabled${valveId}`).is(':checked');
+        
+        if (!cronExpression) {
+            showMessage('Please enter a cron expression', 'error');
+            return;
+        }
+        
+        // Convert minutes to seconds for API
+        const durationSeconds = durationMinutes * 60;
+        
+        const payload = {
+            cron_expression: cronExpression,
+            duration: durationSeconds,
+            enabled: enabled
+        };
+        
+        $.ajax({
+            url: `${API_BASE_URL}/valves/${valveId}/cron`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            timeout: 10000, // 10 second timeout
+            success: function(data) {
+                showMessage(data.message || `Cron schedule saved for valve ${valveId}`, 'success');
+                // Reload the schedule to show updated values
+                loadValveCronSchedule(valveId);
+            },
+            error: function(xhr, status, error) {
+                const errorMessage = xhr.responseJSON ? xhr.responseJSON.message : error || 'Unknown error';
+                showMessage('Error saving cron schedule: ' + errorMessage, 'error');
+            }
+        });
+    }
+    
+    // Function to clear valve cron schedule
+    function clearValveCronSchedule(valveId) {
+        // Clear the cron builder (if it exists)
+        if (window.cronBuilder && window.cronBuilder[valveId]) {
+            window.cronBuilder[valveId].reset();
+        }
+        
+        // Clear the duration input
+        $(`#cron-duration${valveId}`).val(1);  // Default to 1 minute
+        $(`#enabled${valveId}`).prop('checked', false);
+        
+        // Show status message
+        $(`#cron${valveId}-status`).html('<p class="text-muted">Schedule cleared</p>');
     }
     
     // Function to display valve history with better UX
@@ -416,9 +546,6 @@ $(document).ready(function() {
     // Debug: Log when valve usage is initialized
     console.log("Valve usage initialization complete");
     
-    // Set up auto-refresh for valve usage every 30 seconds
-    setInterval(getValveUsage, 30000);
-    
     // Remove auto-refresh for histories (no longer needed as it's triggered by status changes)
     // Previously: setInterval(getAllValveHistories, 30000);
     
@@ -429,24 +556,57 @@ $(document).ready(function() {
     function getWeatherForecast() {
         // First get valve usage data to ensure it's available
         getValveUsageForWeather().done(function() {
-            // Then get weather data and display
+            // Then get next run times for valves
             $.ajax({
-                url: `${API_BASE_URL}/weather/daily`,
+                url: `${API_BASE_URL}/valves/next_run`,
                 method: 'GET',
                 timeout: 10000, // 10 second timeout
-                success: function(data) {
-                    if (data && data.daily) {
-                        displayWeatherForecast(data.daily);
-                    } else {
-                        console.error('Invalid daily forecast data received');
-                        // Display a message that weather data is not available
-                        $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
-                    }
+                success: function(nextRunData) {
+                    // Store next run data for later use in weather cards
+                    window.nextRunData = nextRunData.next_runs || [];
+                    // Then get weather data and display
+                    $.ajax({
+                        url: `${API_BASE_URL}/weather/daily`,
+                        method: 'GET',
+                        timeout: 10000, // 10 second timeout
+                        success: function(data) {
+                            if (data && data.daily) {
+                                displayWeatherForecast(data.daily);
+                            } else {
+                                console.error('Invalid daily forecast data received');
+                                // Display a message that weather data is not available
+                                $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Error fetching weather daily forecast:', error);
+                            // Display a message that weather data is not available
+                            $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                        }
+                    });
                 },
                 error: function(xhr, status, error) {
-                    console.error('Error fetching weather daily forecast:', error);
-                    // Display a message that weather data is not available
-                    $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                    console.error('Error fetching valve next run times:', error);
+                    // Proceed with weather data even if next run times are not available
+                    $.ajax({
+                        url: `${API_BASE_URL}/weather/daily`,
+                        method: 'GET',
+                        timeout: 10000, // 10 second timeout
+                        success: function(data) {
+                            if (data && data.daily) {
+                                displayWeatherForecast(data.daily);
+                            } else {
+                                console.error('Invalid daily forecast data received');
+                                // Display a message that weather data is not available
+                                $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Error fetching weather daily forecast:', error);
+                            // Display a message that weather data is not available
+                            $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                        }
+                    });
                 }
             });
         });
@@ -507,7 +667,7 @@ $(document).ready(function() {
             const monthName = date.toLocaleDateString('en-US', { month: 'short' });
             const dayNumber = date.getDate();
     
-            // Find matching forecast data for this date
+            // Find matching forecast data for this date (we'll match by date string)
             let forecastData = null;
             let hasData = false;
     
@@ -524,7 +684,7 @@ $(document).ready(function() {
     
             // Create card HTML
             let cardHtml = `
-                <div class="col-md-2 mb-3">
+                <div class="col-md-5 mb-3">
                     <div class="card weather-card`;
             // Highlight current day
             if (card.type === 'past' && card.index === 0) {
@@ -536,53 +696,93 @@ $(document).ready(function() {
                             <h5 class="card-title">${dayName}</h5>
                             <p class="card-text">${monthName} ${dayNumber}</p>
             `;
-        
+       
             if (hasData && forecastData) {
                 // Use the actual database fields from the forecast data
-                 const temp_min = Math.round(forecastData.temperature_minimum);
-                 const temp_max = Math.round(forecastData.temperature_maximum);
-                 const humidity = forecastData.average_humidity;
-                 const description = forecastData.description;
-                 const icon = getWeatherIcon(description);
-                 const total_rain = forecastData.total_rain;
+                const temp_min = Math.round(forecastData.temperature_minimum);
+                const temp_max = Math.round(forecastData.temperature_maximum);
+                const humidity = forecastData.average_humidity;
+                const description = forecastData.description;
+                const icon = getWeatherIcon(description);
+                const total_rain = forecastData.total_rain;
+    
+                // Show min and max temperatures for the day
+                cardHtml += `
+                    <div class="weather-icon">${icon}</div>
+                    <p class="card-text min-temp">${temp_min}°C</p>
+                    <p class="card-text max-temp">${temp_max}°C</p>
+                    <p class="card-text">${humidity}% humidity</p>
+                `;
+    
+                // Add rain information if available - positioned in top-left corner
+                if (total_rain !== undefined) {
+                    cardHtml += `
+                        <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
+                    `;
+                }
+       
+                // Add valve usage data in top-left corner (if available)
+                if (window.weatherValveUsage) {
+                    // Create a container for valve usage badges
+                    let valveUsageContainer = '<div class="valve-usage-in-weather-card">';
+                    // Check for each valve (1 and 2)
+                    for (let valveId = 1; valveId <= 2; valveId++) {
+                        if (window.weatherValveUsage[valveId] && window.weatherValveUsage[valveId][dateString]) {
+                            const usageMinutes = window.weatherValveUsage[valveId][dateString];
+                            if (usageMinutes > 0) {
+                                valveUsageContainer += `
+                                    <span class="valve-usage-badge" data-valve="${valveId}">
+                                            Valve ${valveId}: ${usageMinutes} min
+                                        </span>
+                                    `;
+                            }
+                        }
+                    }
+                    valveUsageContainer += '</div>';
+                    if (valveUsageContainer !== '<div class="valve-usage-in-weather-card"></div>') {
+                        cardHtml += valveUsageContainer;
+                    }
+                }
+           
+                // Add next run information if available
+                if (window.nextRunData && window.nextRunData.length > 0) {
+                    let nextRunContainer = '<div class="next-run-in-weather-card">';
+                    window.nextRunData.forEach(nextRun => {
+                        if (nextRun.valve_id === 1 || nextRun.valve_id === 2) {
+                            // The API returns next_runs as an array of 5 dates
+                            // We need to iterate through all 5 dates for this valve
+                            if (nextRun.next_runs && nextRun.next_runs.length > 0) {
+                                nextRun.next_runs.forEach((nextRunDateStr, index) => {
+                                    // Parse the next run date to check if it's for this day
+                                    const nextRunDate = new Date(nextRunDateStr);
+                                    const nextRunDateString = nextRunDate.toISOString().split('T')[0];
+                                    if (nextRunDateString === dateString) {
+                                        // Format the time for display
+                                        const hours = nextRunDate.getHours().toString().padStart(2, '0');
+                                        const minutes = nextRunDate.getMinutes().toString().padStart(2, '0');
+                                        const formattedTime = `${hours}:${minutes}`;
+      
+                                        // Calculate duration (assuming 1 minute for now)
+                                        const duration = 1;
+      
+                                        nextRunContainer += `
+                                            <div class="next-run-badge" data-valve="${nextRun.valve_id}">
+                                                Valve ${nextRun.valve_id}: ${formattedTime} ${duration} min
+                                            </div>
+                                        `;
+                                    }
+                                });
+                            }
+                        }
+                    });
+                    nextRunContainer += '</div>';
+                    if (nextRunContainer !== '<div class="next-run-in-weather-card"></div>') {
+                        cardHtml += nextRunContainer;
+                    }
+                }
                 
-                 // Show min and max temperatures for the day
-                 cardHtml += `
-                     <div class="weather-icon">${icon}</div>
-                     <p class="card-text min-temp">${temp_min}°C</p>
-                     <p class="card-text max-temp">${temp_max}°C</p>
-                     <p class="card-text">${humidity}% humidity</p>
-                 `;
-              
-                 // Add rain information if available - positioned in top-left corner
-                 if (total_rain !== undefined) {
-                     cardHtml += `
-                         <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
-                     `;
-                 }
-                 
-                 // Add valve usage data in top-left corner (if available)
-                 if (window.weatherValveUsage) {
-                     // Create a container for valve usage badges
-                     let valveUsageContainer = '<div class="valve-usage-in-weather-card">';
-                     // Check for each valve (1 and 2)
-                     for (let valveId = 1; valveId <= 2; valveId++) {
-                         if (window.weatherValveUsage[valveId] && window.weatherValveUsage[valveId][dateString]) {
-                             const usageMinutes = window.weatherValveUsage[valveId][dateString];
-                             if (usageMinutes > 0) {
-                                 valveUsageContainer += `
-                                     <span class="valve-usage-badge" data-valve="${valveId}">
-                                         Valve ${valveId}: ${usageMinutes} min
-                                     </span>
-                                 `;
-                             }
-                         }
-                     }
-                     valveUsageContainer += '</div>';
-                     if (valveUsageContainer !== '<div class="valve-usage-in-weather-card"></div>') {
-                         cardHtml += valveUsageContainer;
-                     }
-                 }
+                // Remove next run information from weather cards as per requirements
+                // This section has been removed as per the task requirements
             } else {
                 // Empty card with placeholder
                 cardHtml += `
@@ -590,13 +790,13 @@ $(document).ready(function() {
                     <p class="card-text text-muted">No data</p>
                 `;
             }
-        
+       
             cardHtml += `
                         </div>
                     </div>
                 </div>
             `;
-        
+       
             weatherCardsContainer.append(cardHtml);
         });
     }
@@ -629,9 +829,83 @@ $(document).ready(function() {
     // Set up auto-refresh for weather every 30 minutes
     setInterval(getWeatherForecast, 1800000);
     
-    // Set up auto-refresh for valve usage every 30 seconds
-    setInterval(getValveUsageForWeather, 30000);
-    
     // Initialize valve usage data
     getValveUsageForWeather();
+
+    // Initialize cron builder components
+    function initializeCronBuilder(valveId) {
+        // Check if the container exists
+        const container = document.getElementById(`cron${valveId}-builder`);
+        if (!container) {
+            console.error(`Container for cron builder ${valveId} not found`);
+            return;
+        }
+    
+        // Create new cron builder instance with unique builder ID
+        window.cronBuilder = window.cronBuilder || {};
+        try {
+            window.cronBuilder[valveId] = new CronBuilder(`cron${valveId}-builder`, valveId);
+            console.log(`Cron builder ${valveId} initialized successfully`);
+        } catch (e) {
+            console.error(`Failed to initialize cron builder ${valveId}:`, e);
+            return;
+        }
+    
+        if (window.cronBuilder[valveId]) {
+            console.log(`Cron builder ${valveId} initialized successfully`);
+        } else {
+            console.error(`Failed to initialize cron builder ${valveId}`);
+        }
+    
+        // When cron expression is applied, update the hidden input field
+        // This is needed to maintain compatibility with existing API calls
+        const cronExpressionInput = $(`#cron${valveId}`);
+        const cronBuilderInstance = window.cronBuilder[valveId];
+    
+        // Set the initial value if it exists
+        if (cronExpressionInput.val()) {
+            cronBuilderInstance.setExpression(cronExpressionInput.val());
+        }
+    
+        // Add event listener to update the hidden input when expression changes
+        // This is a bit tricky since we don't have direct access to the builder's internal methods
+        // But we can make sure the hidden input is updated when needed
+    }
+
+    // Initialize cron builder for both valves after page load
+    $(document).ready(function() {
+        // Make sure the cron builder is initialized properly
+        if (typeof window.CronBuilder !== 'undefined') {
+            initializeCronBuilder(1);
+            initializeCronBuilder(2);
+        } else {
+            console.error('CronBuilder class is not available');
+        }
+    });
+
+    // Ensure tabs are properly initialized after everything is loaded
+    $(window).on('load', function() {
+        // Make sure the first tab is active by default
+        $('.nav-tabs .nav-link').first().addClass('active');
+        $('.tab-pane').first().addClass('show');
+    });
+
+    // Initialize tab functionality after document ready
+    $(document).ready(function() {
+        // Ensure the first tab is active by default
+        $('.nav-tabs .nav-link').first().addClass('active');
+        $('.tab-pane').first().addClass('show');
+    
+        // Handle tab switching properly
+        $('.nav-tabs a').on('click', function(e) {
+            e.preventDefault();
+            $(this).tab('show');
+        });
+    });
+
+    // Call next run times function after page load
+    $(document).ready(function() {
+        // Get next run times after page loads
+        setTimeout(getNextRunTimes, 1000); // Delay to ensure page is ready
+    });
 });
