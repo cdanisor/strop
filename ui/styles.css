@@ -107,7 +107,7 @@ body {
 /* Weather cards container */
 .weather-card-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
     justify-content: center;
     gap: 20px;
     margin-bottom: 30px;
@@ -115,14 +115,33 @@ body {
     padding: 0 15px;
 }
 
+@media (min-width: 768px) {
+    .weather-card-container {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
 
-@media (min-width: 1800px) {
+
+@media (min-width: 1200px) {
+    .weather-card-container {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+
+@media (min-width: 1700px) {
     .weather-card-container {
         grid-template-columns: repeat(4, 1fr);
     }
 }
 
-@media (min-width: 2600px) {
+@media (min-width: 2100px) {
+    .weather-card-container {
+        grid-template-columns: repeat(5, 1fr);
+    }
+}
+
+@media (min-width: 2400px) {
     .weather-card-container {
         grid-template-columns: repeat(6, 1fr);
     }
@@ -131,7 +150,7 @@ body {
 /* Weather card styling */
 .weather-card {
     flex: 1 1 300px;
-    min-width: 400px;
+    min-width: 350px;
     max-width: 100%;
     transition: all 0.3s ease;
     border: 1px solid #dee2e6;
