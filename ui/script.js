@@ -1,8 +1,9 @@
 // jQuery script for Valve Control System UI
 $(document).ready(function() {
-    // Dynamically determine the API base URL based on the current host
-    const currentHost = window.location.hostname;
-    const API_BASE_URL = `http://${currentHost}:5000/api`;
+    // API base URL - will be injected by the server
+    if (typeof API_BASE_URL === 'undefined') {
+        API_BASE_URL = 'http://localhost:5000/api';
+    }
     
     // Store previous statuses to detect changes
     let previousStatuses = {};
@@ -903,9 +904,4 @@ $(document).ready(function() {
         });
     });
 
-    // Call next run times function after page load
-    $(document).ready(function() {
-        // Get next run times after page loads
-        setTimeout(getNextRunTimes, 1000); // Delay to ensure page is ready
-    });
 });
