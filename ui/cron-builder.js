@@ -35,12 +35,12 @@ class CronBuilder {
                 <div class="cron-builder-body">
                     <div class="cron-builder-row">
                         <div class="cron-builder-group">
-                            <label>Minute</label>
-                            <input type="text" class="form-control" id="${uniquePrefix}minute-input" placeholder="e.g., 0, 15, 30, 45, */5, 0-59">
-                        </div>
-                        <div class="cron-builder-group">
                             <label>Hour</label>
                             <input type="text" class="form-control" id="${uniquePrefix}hour-input" placeholder="e.g., 0, 6, 12, 18, */2, 0-23">
+                        </div>
+                        <div class="cron-builder-group">
+                            <label>Minute</label>
+                            <input type="text" class="form-control" id="${uniquePrefix}minute-input" placeholder="e.g., 0, 15, 30, 45, */5, 0-59">
                         </div>
                     </div>
                     <div class="cron-builder-row">
