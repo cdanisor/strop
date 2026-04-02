@@ -44,13 +44,13 @@ class CronBuilder {
                         <div class="cron-builder-group">
                             <label>Day of Week</label>
                             <select class="form-control" id="${uniquePrefix}day-of-week-select" multiple>
-                                <option value="0">Sunday</option>
                                 <option value="1">Monday</option>
                                 <option value="2">Tuesday</option>
                                 <option value="3">Wednesday</option>
                                 <option value="4">Thursday</option>
                                 <option value="5">Friday</option>
                                 <option value="6">Saturday</option>
+                                <option value="0">Sunday</option>
                             </select>
                         </div>
                         <div class="cron-builder-group">
