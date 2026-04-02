@@ -27,14 +27,8 @@ class APIService:
         self.host = host
         self.port = port
         self.app = Flask(__name__)
-        # Enable CORS for all routes with specific configuration
-        CORS(self.app, resources={
-            r"/api/*": {
-                "origins": "*",
-                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                "allow_headers": ["Content-Type", "Authorization", "Accept"]
-            }
-        })
+        # Enable CORS for all routes - simple and clean configuration
+        CORS(self.app, supports_credentials=True)
         self._setup_routes()
     
     def _setup_routes(self):
