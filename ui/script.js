@@ -763,12 +763,9 @@ $(document).ready(function() {
                                         const minutes = nextRunDate.getMinutes().toString().padStart(2, '0');
                                         const formattedTime = `${hours}:${minutes}`;
       
-                                        // Calculate duration (assuming 1 minute for now)
-                                        const duration = 1;
-      
                                         nextRunContainer += `
                                             <div class="next-run-badge" data-valve="${nextRun.valve_id}">
-                                                Valve ${nextRun.valve_id}: ${formattedTime} ${duration} min
+                                                Valve ${nextRun.valve_id}: ${formattedTime}
                                             </div>
                                         `;
                                     }
