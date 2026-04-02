@@ -336,12 +336,6 @@ body {
     background-color: #f8f9fa;
 }
 
-.cron-builder-header {
-    margin-bottom: 10px;
-    padding-bottom: 5px;
-    border-bottom: 1px solid #dee2e6;
-}
-
 .cron-builder-body {
     display: flex;
     flex-direction: column;

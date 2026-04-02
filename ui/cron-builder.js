@@ -29,9 +29,6 @@ class CronBuilder {
         
         container.innerHTML = `
             <div class="cron-builder-container" id="${uniquePrefix}container">
-                <div class="cron-builder-header">
-                    <h5>Cron Expression Builder</h5>
-                </div>
                 <div class="cron-builder-body">
                     <div class="cron-builder-row">
                         <div class="cron-builder-group">
