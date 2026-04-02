@@ -42,7 +42,8 @@
 }
 
 .cron-builder-group select,
-.cron-builder-group input {
+.cron-builder-group input,
+.cron-builder-group .form-check-input {
     width: 100%;
     padding: 0.375rem 0.75rem;
     font-size: 0.875rem;
@@ -79,6 +80,17 @@
 
 .cron-builder-row .cron-builder-group button {
     margin-top: 1.5rem;
+}
+
+/* Original CSS styling for select elements */
+.cron-builder-group select {
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    background-color: #fff;
 }
 
 @media (max-width: 768px) {

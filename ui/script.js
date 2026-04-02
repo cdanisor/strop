@@ -352,6 +352,10 @@ $(document).ready(function() {
             },
             error: function(xhr, status, error) {
                 console.log(`Error loading cron schedule for valve ${valveId}:`, error);
+                // If there's an error, we should still try to initialize the cron builder
+                if (window.cronBuilder && window.cronBuilder[valveId]) {
+                    window.cronBuilder[valveId].setExpression('');
+                }
             }
         });
     }

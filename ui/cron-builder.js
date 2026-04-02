@@ -175,7 +175,16 @@ class CronBuilder {
 
     // Method to set expression from outside
     setExpression(expression) {
-        if (!expression) return;
+        if (!expression) {
+            // Reset to default values when expression is empty
+            this.cronParts = {
+                minute: '*',
+                hour: '*',
+                dayOfWeek: '*'
+            };
+            this.updateExpression();
+            return;
+        }
         
         const parts = expression.split(' ');
         if (parts.length >= 5) {
@@ -187,6 +196,7 @@ class CronBuilder {
             // Update the UI
             const container = document.getElementById(this.containerId);
             const uniquePrefix = `cron-builder-${this.builderId}-`;
+            
             const minuteInput = container.querySelector(`#${uniquePrefix}minute-input`);
             if (minuteInput) minuteInput.value = this.cronParts.minute;
             
@@ -208,6 +218,15 @@ class CronBuilder {
             
             this.cronExpression = expression;
             console.log('Set expression to:', expression);
+            this.updateExpression(); // Make sure the expression is updated in the preview field
+        } else {
+            // If expression is invalid, reset to defaults
+            this.cronParts = {
+                minute: '*',
+                hour: '*',
+                dayOfWeek: '*'
+            };
+            this.updateExpression();
         }
     }
 
