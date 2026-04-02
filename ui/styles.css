@@ -107,7 +107,7 @@ body {
 /* Weather cards container */
 .weather-card-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     justify-content: center;
     gap: 20px;
     margin-bottom: 30px;
@@ -115,8 +115,14 @@ body {
     padding: 0 15px;
 }
 
-/* For screens that can accommodate up to 6 columns */
-@media (min-width: 1200px) {
+
+@media (min-width: 1800px) {
+    .weather-card-container {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (min-width: 2600px) {
     .weather-card-container {
         grid-template-columns: repeat(6, 1fr);
     }
@@ -125,7 +131,7 @@ body {
 /* Weather card styling */
 .weather-card {
     flex: 1 1 300px;
-    min-width: 300px;
+    min-width: 400px;
     max-width: 100%;
     transition: all 0.3s ease;
     border: 1px solid #dee2e6;
