@@ -556,24 +556,57 @@ $(document).ready(function() {
     function getWeatherForecast() {
         // First get valve usage data to ensure it's available
         getValveUsageForWeather().done(function() {
-            // Then get weather data and display
+            // Then get next run times for valves
             $.ajax({
-                url: `${API_BASE_URL}/weather/daily`,
+                url: `${API_BASE_URL}/valves/next_run`,
                 method: 'GET',
                 timeout: 10000, // 10 second timeout
-                success: function(data) {
-                    if (data && data.daily) {
-                        displayWeatherForecast(data.daily);
-                    } else {
-                        console.error('Invalid daily forecast data received');
-                        // Display a message that weather data is not available
-                        $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
-                    }
+                success: function(nextRunData) {
+                    // Store next run data for later use in weather cards
+                    window.nextRunData = nextRunData.next_runs || [];
+                    // Then get weather data and display
+                    $.ajax({
+                        url: `${API_BASE_URL}/weather/daily`,
+                        method: 'GET',
+                        timeout: 10000, // 10 second timeout
+                        success: function(data) {
+                            if (data && data.daily) {
+                                displayWeatherForecast(data.daily);
+                            } else {
+                                console.error('Invalid daily forecast data received');
+                                // Display a message that weather data is not available
+                                $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Error fetching weather daily forecast:', error);
+                            // Display a message that weather data is not available
+                            $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                        }
+                    });
                 },
                 error: function(xhr, status, error) {
-                    console.error('Error fetching weather daily forecast:', error);
-                    // Display a message that weather data is not available
-                    $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                    console.error('Error fetching valve next run times:', error);
+                    // Proceed with weather data even if next run times are not available
+                    $.ajax({
+                        url: `${API_BASE_URL}/weather/daily`,
+                        method: 'GET',
+                        timeout: 10000, // 10 second timeout
+                        success: function(data) {
+                            if (data && data.daily) {
+                                displayWeatherForecast(data.daily);
+                            } else {
+                                console.error('Invalid daily forecast data received');
+                                // Display a message that weather data is not available
+                                $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Error fetching weather daily forecast:', error);
+                            // Display a message that weather data is not available
+                            $('#weather-cards').html('<div class="col-12"><p class="text-center text-muted">Weather data not available</p></div>');
+                        }
+                    });
                 }
             });
         });
@@ -651,7 +684,7 @@ $(document).ready(function() {
     
             // Create card HTML
             let cardHtml = `
-                <div class="col-md-2 mb-3">
+                <div class="col-md-5 mb-3">
                     <div class="card weather-card`;
             // Highlight current day
             if (card.type === 'past' && card.index === 0) {
@@ -663,7 +696,7 @@ $(document).ready(function() {
                             <h5 class="card-title">${dayName}</h5>
                             <p class="card-text">${monthName} ${dayNumber}</p>
             `;
-            
+       
             if (hasData && forecastData) {
                 // Use the actual database fields from the forecast data
                 const temp_min = Math.round(forecastData.temperature_minimum);
@@ -687,7 +720,7 @@ $(document).ready(function() {
                         <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
                     `;
                 }
-            
+       
                 // Add valve usage data in top-left corner (if available)
                 if (window.weatherValveUsage) {
                     // Create a container for valve usage badges
@@ -710,6 +743,46 @@ $(document).ready(function() {
                         cardHtml += valveUsageContainer;
                     }
                 }
+           
+                // Add next run information if available
+                if (window.nextRunData && window.nextRunData.length > 0) {
+                    let nextRunContainer = '<div class="next-run-in-weather-card">';
+                    window.nextRunData.forEach(nextRun => {
+                        if (nextRun.valve_id === 1 || nextRun.valve_id === 2) {
+                            // The API returns next_runs as an array of 5 dates
+                            // We need to iterate through all 5 dates for this valve
+                            if (nextRun.next_runs && nextRun.next_runs.length > 0) {
+                                nextRun.next_runs.forEach((nextRunDateStr, index) => {
+                                    // Parse the next run date to check if it's for this day
+                                    const nextRunDate = new Date(nextRunDateStr);
+                                    const nextRunDateString = nextRunDate.toISOString().split('T')[0];
+                                    if (nextRunDateString === dateString) {
+                                        // Format the time for display
+                                        const hours = nextRunDate.getHours().toString().padStart(2, '0');
+                                        const minutes = nextRunDate.getMinutes().toString().padStart(2, '0');
+                                        const formattedTime = `${hours}:${minutes}`;
+      
+                                        // Calculate duration (assuming 1 minute for now)
+                                        const duration = 1;
+      
+                                        nextRunContainer += `
+                                            <div class="next-run-badge" data-valve="${nextRun.valve_id}">
+                                                Valve ${nextRun.valve_id}: ${formattedTime} ${duration} min
+                                            </div>
+                                        `;
+                                    }
+                                });
+                            }
+                        }
+                    });
+                    nextRunContainer += '</div>';
+                    if (nextRunContainer !== '<div class="next-run-in-weather-card"></div>') {
+                        cardHtml += nextRunContainer;
+                    }
+                }
+                
+                // Remove next run information from weather cards as per requirements
+                // This section has been removed as per the task requirements
             } else {
                 // Empty card with placeholder
                 cardHtml += `
@@ -717,13 +790,13 @@ $(document).ready(function() {
                     <p class="card-text text-muted">No data</p>
                 `;
             }
-            
+       
             cardHtml += `
                         </div>
                     </div>
                 </div>
             `;
-            
+       
             weatherCardsContainer.append(cardHtml);
         });
     }
@@ -758,7 +831,7 @@ $(document).ready(function() {
     
     // Initialize valve usage data
     getValveUsageForWeather();
-    
+
     // Initialize cron builder components
     function initializeCronBuilder(valveId) {
         // Check if the container exists
@@ -767,7 +840,7 @@ $(document).ready(function() {
             console.error(`Container for cron builder ${valveId} not found`);
             return;
         }
-        
+    
         // Create new cron builder instance with unique builder ID
         window.cronBuilder = window.cronBuilder || {};
         try {
@@ -777,28 +850,28 @@ $(document).ready(function() {
             console.error(`Failed to initialize cron builder ${valveId}:`, e);
             return;
         }
-        
+    
         if (window.cronBuilder[valveId]) {
             console.log(`Cron builder ${valveId} initialized successfully`);
         } else {
             console.error(`Failed to initialize cron builder ${valveId}`);
         }
-        
+    
         // When cron expression is applied, update the hidden input field
         // This is needed to maintain compatibility with existing API calls
         const cronExpressionInput = $(`#cron${valveId}`);
         const cronBuilderInstance = window.cronBuilder[valveId];
-        
+    
         // Set the initial value if it exists
         if (cronExpressionInput.val()) {
             cronBuilderInstance.setExpression(cronExpressionInput.val());
         }
-        
+    
         // Add event listener to update the hidden input when expression changes
         // This is a bit tricky since we don't have direct access to the builder's internal methods
         // But we can make sure the hidden input is updated when needed
     }
-    
+
     // Initialize cron builder for both valves after page load
     $(document).ready(function() {
         // Make sure the cron builder is initialized properly
@@ -809,24 +882,30 @@ $(document).ready(function() {
             console.error('CronBuilder class is not available');
         }
     });
-    
+
     // Ensure tabs are properly initialized after everything is loaded
     $(window).on('load', function() {
         // Make sure the first tab is active by default
         $('.nav-tabs .nav-link').first().addClass('active');
         $('.tab-pane').first().addClass('show');
     });
-    
+
     // Initialize tab functionality after document ready
     $(document).ready(function() {
         // Ensure the first tab is active by default
         $('.nav-tabs .nav-link').first().addClass('active');
         $('.tab-pane').first().addClass('show');
-        
+    
         // Handle tab switching properly
         $('.nav-tabs a').on('click', function(e) {
             e.preventDefault();
             $(this).tab('show');
         });
+    });
+
+    // Call next run times function after page load
+    $(document).ready(function() {
+        // Get next run times after page loads
+        setTimeout(getNextRunTimes, 1000); // Delay to ensure page is ready
     });
 });

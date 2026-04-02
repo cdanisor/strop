@@ -458,15 +458,15 @@ class APIService:
                 # Import database here to avoid circular imports
                 from src.database import Database
                 db = Database()
-                
+             
                 # Get valve logs for the last 7 days (including today)
                 from datetime import datetime, timedelta
                 end_date = datetime.now()
                 start_date = end_date - timedelta(days=7)
-                
+             
                 # Get all valve logs for the last 7 days
                 logs = db.get_valve_logs(limit=1000)  # Get a reasonable number of logs
-                
+             
                 # Calculate total duration per valve per day
                 usage_stats = {}
                 for log in logs:
@@ -475,22 +475,22 @@ class APIService:
                     if start_date.date() <= log_date <= end_date.date():
                         valve_id = log['valve_id']
                         duration = log['duration'] or 0
-     
+             
                         if valve_id not in usage_stats:
                             usage_stats[valve_id] = {}
-     
+             
                         # Convert date to string for JSON serialization
                         date_str = log_date.isoformat()
                         if date_str not in usage_stats[valve_id]:
                             usage_stats[valve_id][date_str] = 0
-     
+             
                         usage_stats[valve_id][date_str] += duration
-                
+             
                 # Convert seconds to minutes
                 for valve_id in usage_stats:
                     for date in usage_stats[valve_id]:
                         usage_stats[valve_id][date] = round(usage_stats[valve_id][date] / 60)
-                
+             
                 return jsonify({
                     'valves': usage_stats
                 }), 200
@@ -500,6 +500,69 @@ class APIService:
                 return jsonify({
                     'success': False,
                     'message': f'Error getting valve usage statistics: {str(e)}'
+                }), 500
+        
+        # Route for getting next run times for all valves
+        @self.app.route('/api/valves/next_run', methods=['GET'])
+        def get_valves_next_run():
+            """Get next run times for all valves."""
+            try:
+                # Import database here to avoid circular imports
+                from src.database import Database
+                db = Database()
+    
+                # Get all valve crons
+                all_crons = db.get_all_valve_crons()
+    
+                # Prepare response with next run times
+                next_runs = []
+                for cron in all_crons:
+                    if cron['enabled'] and cron['cron_expression']:
+                        # Calculate the next 5 runs for this valve
+                        valve_next_runs = []
+                        cron_expression = cron['cron_expression']
+                        
+                        # Import required modules for cron parsing
+                        from apscheduler.triggers.cron import CronTrigger
+                        from datetime import datetime
+                        
+                        # Create a CronTrigger from the cron expression
+                        trigger = CronTrigger.from_crontab(cron_expression)
+                        
+                        # Get the current time
+                        current_time = datetime.now()
+                        
+                        # Calculate the next 5 run times
+                        for i in range(5):
+                            try:
+                                # Get next run time after current time
+                                next_run = trigger.get_next_fire_time(None, current_time)
+                                if next_run:
+                                    valve_next_runs.append(next_run.isoformat())
+                                    # Set current_time to the next run time for the next iteration
+                                    # Add 1 minute to current_time to avoid same time issues
+                                    from datetime import timedelta
+                                    current_time = next_run + timedelta(minutes=1)
+                                else:
+                                    break
+                            except Exception as e:
+                                logger.error(f"Error calculating next run for valve {cron['valve_id']}: {e}")
+                                break
+                        
+                        next_runs.append({
+                            'valve_id': cron['valve_id'],
+                            'next_runs': valve_next_runs
+                        })
+    
+                return jsonify({
+                    'next_runs': next_runs
+                }), 200
+    
+            except Exception as e:
+                logger.error(f"Error getting valves next run times: {e}")
+                return jsonify({
+                    'success': False,
+                    'message': f'Error getting valves next run times: {str(e)}'
                 }), 500
     
     def run(self):
