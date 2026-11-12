@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Strop irrigation controller",
+        "description": "Connect to the Strop controller. The password is used once to create a dedicated long-lived token for Home Assistant; it is not stored.",
+        "data": {
+          "url": "Strop API URL",
+          "password": "Strop password",
+          "ha_url": "Home Assistant URL reachable from the Strop controller"
+        },
+        "data_description": {
+          "url": "For example http://192.168.10.17:5000",
+          "ha_url": "Strop sends events (for notifications) to this address, e.g. http://192.168.10.14:8209"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Strop",
+        "description": "The Home Assistant token was rejected. Enter the Strop password to create a new one.",
+        "data": { "password": "Strop password" }
+      }
+    },
+    "error": {
+      "invalid_auth": "Wrong password",
+      "cannot_connect": "Cannot reach the Strop controller",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This Strop controller is already configured",
+      "reauth_successful": "Re-authentication successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Strop notifications",
+        "data": {
+          "notify_service": "Notification service",
+          "notify_events": "Notify me about",
+          "language": "Notification language"
+        },
+        "data_description": {
+          "notify_service": "For example notify.mobile_app_your_phone. Leave empty for no notifications (events are still fired as strop_event)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "notify_events": {
+      "options": {
+        "run_started": "Watering started",
+        "run_finished": "Watering finished",
+        "run_skipped": "Scheduled watering skipped (weather)",
+        "watchdog": "Valve force-closed by the watchdog",
+        "weather_stale": "Weather data not updated",
+        "controller_started": "Controller started / restarted"
+      }
+    },
+    "language": {
+      "options": { "ro": "Romanian", "en": "English" }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "watering": { "name": "Zone {zone} watering" }
+    },
+    "number": {
+      "manual_duration": { "name": "Zone {zone} manual duration" }
+    },
+    "sensor": {
+      "remaining": { "name": "Zone {zone} remaining" },
+      "next_run": { "name": "Zone {zone} next run" },
+      "next_duration": { "name": "Zone {zone} next run duration" },
+      "adjustment": { "name": "Weather adjustment" },
+      "watered_today": { "name": "Watered today" },
+      "weather_updated": { "name": "Forecast updated" }
+    },
+    "switch": {
+      "valve": { "name": "Zone {zone}" },
+      "schedule": { "name": "Zone {zone} schedule" }
+    }
+  }
+}

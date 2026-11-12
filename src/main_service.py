@@ -15,6 +15,7 @@ from src.database import Database
 from src.services.weather.weather_service import WeatherService
 from src.services.weather.cron_scheduler import CronScheduler
 from src.services.valve_cron_scheduler import ValveCronScheduler
+from src.services.notifier import Notifier
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +33,8 @@ class MainService:
         self.weather_service = None
         self.scheduler = None
         self.valve_scheduler = None
-        
+        self.notifier = Notifier(self.config_service)
+
         # Register cleanup handler
         atexit.register(self.cleanup)
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -52,24 +54,24 @@ class MainService:
                 print(f"Terminated {opened_count} previously opened records")
                
             # Initialize GPIO service
-            self.gpio_service = GPIOControlService(self.config_service.get_all(), self.db)
-            
+            self.gpio_service = GPIOControlService(self.config_service.get_all(), self.db,
+                                                   on_event=self.notifier.valve_event)
+
             # Initialize weather service
             self.weather_service = WeatherService()
-            
-            # Fetch weather data at startup
-            self.weather_service.update_weather_data()
-            
-            # Start the weather update scheduler
-            self.scheduler = CronScheduler()
+
+            # Start the weather update scheduler (it also fetches weather at startup)
+            self.scheduler = CronScheduler(notifier=self.notifier)
+            self.scheduler.run_now()
             self.scheduler.start()
     
             # Start the valve cron scheduler
             self.valve_scheduler = ValveCronScheduler()
             self.valve_scheduler.start(self.db, self)
             logger.info("Valve cron scheduler started")
-    
+
             self.is_running = True
+            self.notifier.emit('controller_started')
             return True
     
         except Exception as e:

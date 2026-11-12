@@ -11,7 +11,7 @@ import pytest
 from src.database import Database
 from src.services.gpio_control_service import GPIOControlService
 from src.services.valve_cron_scheduler import ValveCronScheduler
-from src.services.watering_adjustment import compute_adjustment, adjusted_seconds, WateringAdjuster
+from src.services.watering_adjustment import compute_adjustment, adjusted_seconds, WateringAdjuster, decode_note
 from src.services.weather.weather_service import WeatherService
 
 RUN = date(2026, 7, 15)
@@ -180,7 +180,9 @@ def test_scheduled_run_uses_adjusted_duration_and_logs_it(db):
         gpio.deactivate_valve(1)
         log = db.get_valve_logs(1)[0]
         assert log['base_duration'] == 600 and log['adjust_percent'] == 56
-        assert log['adjust_note'] == 'cool, humid'
+        note = decode_note(log['adjust_note'])
+        assert note['text'] == 'cool, humid' and note['key'] == 'reduced'
+        assert note['args']['factors'] == ['temp', 'humidity']
     finally:
         sched.stop()
         gpio.cleanup()
@@ -200,7 +202,8 @@ def test_scheduled_run_skipped_by_weather_is_logged(db):
         assert gpio.get_valve_status(2) is False
         log = db.get_valve_logs(2)[0]
         assert log['status'] == 'Skipped' and log['base_duration'] == 600
-        assert log['adjust_note'].startswith('Frost risk')
+        note = decode_note(log['adjust_note'])
+        assert note['key'] == 'frost' and note['text'].startswith('Frost risk')
         assert db.get_valve_cron(2)['last_run'] is not None
     finally:
         sched.stop()
@@ -234,3 +237,18 @@ def test_daily_totals_keep_slots_from_earlier_updates(db):
     assert row['total_rain'] == pytest.approx(6.0)        # morning rain kept
     assert row['temperature_minimum'] == 5                  # 00:00 slot kept
     assert row['temperature_maximum'] == 23                 # 18:00 slot kept
+
+
+def test_reason_keys_for_translation():
+    assert compute_adjustment(dry(1, 15, 40), RUN)['reason_key'] == 'frost'
+    assert compute_adjustment(dry(4, 10, 60), RUN)['reason_args'] == {'temp': 7}
+    w = dry(16, 28, 55)
+    w[RUN.isoformat()]['total_rain'] = 12.7
+    adj = compute_adjustment(w, RUN)
+    assert adj['reason_key'] == 'not_needed' and adj['reason_args'] == {'factor': 'rain', 'rain': 13}
+    assert compute_adjustment({}, RUN)['reason_key'] == 'no_data'
+
+
+def test_decode_note_accepts_plain_text():
+    assert decode_note('old free text') == {'key': None, 'args': {}, 'text': 'old free text'}
+    assert decode_note(None)['text'] == ''

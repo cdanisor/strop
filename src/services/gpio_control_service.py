@@ -27,7 +27,7 @@ VALVE_IDS = (1, 2)
 class GPIOControlService:
     """Service for controlling GPIO pins and relays for irrigation valves."""
 
-    def __init__(self, config: Dict[str, Any], db: Optional[Database] = None):
+    def __init__(self, config: Dict[str, Any], db: Optional[Database] = None, on_event=None):
         self.config = config
         self.valve1_pin = config.get('gpio', {}).get('valve1_pin', 23)
         self.valve2_pin = config.get('gpio', {}).get('valve2_pin', 24)
@@ -42,7 +42,17 @@ class GPIOControlService:
         self._lock = threading.RLock()
 
         self.db = db if db is not None else Database()
+        # on_event(kind, valve_id, **data) with kind 'opened' / 'closed' (notifications)
+        self.on_event = on_event
         self._setup_gpio()
+
+    def _emit(self, kind: str, valve_id: int, **data) -> None:
+        if self.on_event is None:
+            return
+        try:
+            self.on_event(kind, valve_id, **data)
+        except Exception as e:
+            logger.error(f"Event callback failed: {e}")
 
     def _pin(self, valve_id: int) -> int:
         return self.valve1_pin if valve_id == 1 else self.valve2_pin
@@ -115,6 +125,7 @@ class GPIOControlService:
             self.active_timers[valve_id] = timer
             timer.start()
             logger.info(f"Valve {valve_id} activated for {duration} seconds")
+            self._emit('opened', valve_id, duration=duration, meta=meta)
             return True
 
     def _on_timer(self, valve_id: int) -> None:
@@ -160,6 +171,7 @@ class GPIOControlService:
             log_id = self.open_log_ids.pop(valve_id, None)
             if not log_id or not self.db.update_valve_log_status(log_id, duration, status):
                 self.db.insert_valve_log(valve_id, status, duration, start_time)
+            self._emit('closed', valve_id, duration=duration, status=status)
             return True
 
     def get_valve_status(self, valve_id: int) -> bool:

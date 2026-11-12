@@ -29,6 +29,7 @@ Adaptations for this garden:
 
 All parameters can be overridden in config.json under "watering_adjustment".
 """
+import json
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, Optional
 
@@ -85,12 +86,15 @@ def compute_adjustment(weather_by_date: Dict[str, Dict[str, Any]], run_date: dat
         'percent': 100,
         'skip': False,
         'reason': '',
+        # Machine-readable reason (translated by the UI): key + arguments
+        'reason_key': 'normal',
+        'reason_args': {},
         'terms': {'temp': 0.0, 'humidity': 0.0, 'rain': 0.0},
         'inputs': {'temp': None, 'humidity': None, 'rain': 0.0, 'min_temp': None},
         'days_used': [],
     }
     if not cfg['enabled']:
-        result['reason'] = 'Weather adjustment disabled'
+        result.update(reason='Weather adjustment disabled', reason_key='disabled')
         return result
 
     def day(offset: int) -> Optional[Dict[str, Any]]:
@@ -104,7 +108,7 @@ def compute_adjustment(weather_by_date: Dict[str, Dict[str, Any]], run_date: dat
     humidity = _mean(d.get('average_humidity') for d in climate_days)
 
     if temp is None and humidity is None:
-        result['reason'] = 'No weather data, full duration'
+        result.update(reason='No weather data, full duration', reason_key='no_data')
         return result
 
     # Weighted rain window
@@ -133,22 +137,46 @@ def compute_adjustment(weather_by_date: Dict[str, Dict[str, Any]], run_date: dat
 
     # Hard skips, most important first
     if min_temp is not None and min_temp <= cfg['freeze_temp']:
-        result.update(percent=0, skip=True, reason=f'Frost risk (min {min_temp:.0f}°C)')
+        result.update(percent=0, skip=True, reason=f'Frost risk (min {min_temp:.0f}°C)',
+                      reason_key='frost', reason_args={'min': round(min_temp)})
     elif temp is not None and temp < cfg['cold_temp']:
-        result.update(percent=0, skip=True, reason=f'Too cold for grass ({temp:.0f}°C avg)')
+        result.update(percent=0, skip=True, reason=f'Too cold for grass ({temp:.0f}°C avg)',
+                      reason_key='cold', reason_args={'temp': round(temp)})
     elif percent < cfg['min_percent']:
         main = min(result['terms'], key=result['terms'].get)
         label = {'temp': 'cool weather', 'humidity': 'high humidity', 'rain': f'rain ({rain:.0f} mm)'}[main]
-        result.update(percent=0, skip=True, reason=f'Not needed: {label}')
+        result.update(percent=0, skip=True, reason=f'Not needed: {label}',
+                      reason_key='not_needed', reason_args={'factor': main, 'rain': round(rain)})
     else:
         result['percent'] = int(round(percent))
         reductions = [(v, k) for k, v in result['terms'].items() if v <= -5]
         if reductions:
+            factors = [k for _, k in sorted(reductions)]
             labels = {'temp': 'cool', 'humidity': 'humid', 'rain': f'rain {rain:.0f} mm'}
-            result['reason'] = ', '.join(labels[k] for _, k in sorted(reductions))
+            result.update(reason=', '.join(labels[k] for k in factors), reason_key='reduced',
+                          reason_args={'factors': factors, 'rain': round(rain)})
         else:
-            result['reason'] = 'Normal conditions'
+            result.update(reason='Normal conditions', reason_key='normal')
     return result
+
+
+def encode_note(adjustment: Dict[str, Any]) -> str:
+    """Reason stored in valve_logs.adjust_note: JSON with key, args and English text."""
+    return json.dumps({'key': adjustment.get('reason_key'), 'args': adjustment.get('reason_args') or {},
+                       'text': adjustment.get('reason', '')}, ensure_ascii=False)
+
+
+def decode_note(note: Optional[str]) -> Dict[str, Any]:
+    """Inverse of encode_note; plain-text notes (older rows) become {'text': note}."""
+    if not note:
+        return {'key': None, 'args': {}, 'text': ''}
+    try:
+        data = json.loads(note)
+        if isinstance(data, dict):
+            return {'key': data.get('key'), 'args': data.get('args') or {}, 'text': data.get('text', '')}
+    except (ValueError, TypeError):
+        pass
+    return {'key': None, 'args': {}, 'text': note}
 
 
 def adjusted_seconds(base_seconds: int, adjustment: Dict[str, Any],
@@ -188,4 +216,6 @@ class WateringAdjuster:
             adj['skip'] = True
             adj['percent'] = 0
             adj['reason'] = 'Adjusted run too short'
+            adj['reason_key'] = 'too_short'
+            adj['reason_args'] = {}
         return adj

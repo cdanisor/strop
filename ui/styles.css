@@ -154,6 +154,7 @@ svg { display: block; }
 }
 .icon-btn:hover { color: var(--text); border-color: var(--faint); }
 .icon-btn svg { width: 18px; height: 18px; }
+.lang-btn { font-size: 12px; font-weight: 700; letter-spacing: .03em; }
 
 .show-dark { display: none !important; }
 :root[data-theme="dark"] .show-dark { display: block !important; }

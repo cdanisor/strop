@@ -64,7 +64,7 @@ class APIService:
             header = request.headers.get('Authorization', '')
             token = header[7:].strip() if header.lower().startswith('bearer ') else None
             if not self.auth.verify_token(token):
-                return jsonify({'success': False, 'message': 'Authentication required',
+                return jsonify({'success': False, 'code': 'auth_required', 'message': 'Authentication required',
                                 'auth_required': True}), 401
             return None
 
@@ -80,20 +80,69 @@ class APIService:
             key = auth.client_key(request.remote_addr, request.headers.get('X-Forwarded-For'))
             wait = auth.retry_after(key)
             if wait:
-                resp = jsonify({'success': False,
+                resp = jsonify({'success': False, 'code': 'rate_limited', 'retry_minutes': max(1, wait // 60),
                                 'message': f'Too many failed attempts. Try again in {max(1, wait // 60)} min.'})
                 resp.headers['Retry-After'] = str(wait)
                 return resp, 429
             if not auth.is_configured():
-                return jsonify({'success': False,
+                return jsonify({'success': False, 'code': 'not_configured',
                                 'message': 'No password set on the controller. Run scripts/set_password.py on the Pi.'}), 503
             payload = request.get_json(silent=True) or {}
             if not auth.check_password(str(payload.get('password') or '')):
                 auth.record_failure(key)
-                return jsonify({'success': False, 'message': 'Wrong password'}), 401
+                return jsonify({'success': False, 'code': 'wrong_password', 'message': 'Wrong password'}), 401
             auth.record_success(key)
             return jsonify({'success': True, 'token': auth.issue_token(),
                             'expires_in': auth.token_max_age}), 200
+
+        # ------------------------------------------------------------ integrations
+        @self.app.route('/api/auth/integration-tokens', methods=['GET'])
+        def list_integration_tokens():
+            return jsonify({'tokens': self.auth.list_integration_tokens()}), 200
+
+        @self.app.route('/api/auth/integration-tokens', methods=['POST'])
+        def create_integration_token():
+            """Create a long-lived token for an integration (shown only once)."""
+            payload = request.get_json(silent=True) or {}
+            try:
+                token = self.auth.create_integration_token(str(payload.get('name') or ''))
+            except ValueError as e:
+                return jsonify({'success': False, 'code': 'invalid_name', 'message': str(e)}), 400
+            return jsonify({'success': True, 'token': token}), 200
+
+        @self.app.route('/api/auth/integration-tokens/<name>', methods=['DELETE'])
+        def revoke_integration_token(name):
+            if not self.auth.revoke_integration_token(name):
+                return jsonify({'success': False, 'message': 'Unknown token'}), 404
+            return jsonify({'success': True}), 200
+
+        @self.app.route('/api/integrations/webhooks', methods=['GET'])
+        def list_webhooks():
+            from src.main_service import main_service
+            hooks = [{'name': h.get('name')} for h in main_service.notifier.webhooks()]
+            return jsonify({'webhooks': hooks}), 200
+
+        @self.app.route('/api/integrations/webhooks', methods=['POST'])
+        def set_webhook():
+            """Register (or replace) the webhook an integration wants events on."""
+            from src.main_service import main_service
+            payload = request.get_json(silent=True) or {}
+            name = str(payload.get('name') or '').strip()[:64]
+            url = str(payload.get('url') or '').strip()
+            if not name or not url:
+                return jsonify({'success': False, 'message': 'name and url are required'}), 400
+            try:
+                main_service.notifier.set_webhook(name, url)
+            except ValueError as e:
+                return jsonify({'success': False, 'message': str(e)}), 400
+            return jsonify({'success': True}), 200
+
+        @self.app.route('/api/integrations/webhooks/<name>', methods=['DELETE'])
+        def remove_webhook(name):
+            from src.main_service import main_service
+            if not main_service.notifier.remove_webhook(name):
+                return jsonify({'success': False, 'message': 'Unknown webhook'}), 404
+            return jsonify({'success': True}), 200
 
         @self.app.route('/api/auth/check', methods=['GET'])
         def auth_check():
@@ -119,6 +168,7 @@ class APIService:
                 if current_status:
                     return jsonify({
                         'success': False,
+                        'code': 'already_active',
                         'message': f'Valve {valve_id} is already active'
                     }), 400
                 
@@ -131,7 +181,8 @@ class APIService:
                     except (TypeError, ValueError):
                         return jsonify({'success': False, 'message': 'Duration must be a valid integer'}), 400
                     if duration <= 0:
-                        return jsonify({'success': False, 'message': 'Duration must be at least 1 second'}), 400
+                        return jsonify({'success': False, 'code': 'invalid_duration',
+                                        'message': 'Duration must be at least 1 second'}), 400
                     # Limit duration to 1 hour (3600 seconds)
                     duration = min(duration, MAX_DURATION_SECONDS)
                 else:
@@ -467,7 +518,7 @@ class APIService:
                 try:
                     validate_cron(cron_expression)
                 except CronValidationError as e:
-                    return jsonify({'success': False, 'message': str(e)}), 400
+                    return jsonify({'success': False, 'code': 'invalid_cron', 'message': str(e)}), 400
 
                 if duration is not None:
                     try:
@@ -630,7 +681,8 @@ class APIService:
                 from src.database import Database
                 from src.main_service import main_service
                 from datetime import datetime, timedelta
-                from src.services.watering_adjustment import WateringAdjuster, settings as adjustment_settings
+                from src.services.watering_adjustment import (WateringAdjuster, decode_note,
+                                                              settings as adjustment_settings)
                 db = Database()
                 now = datetime.now()
                 today = now.date()
@@ -656,6 +708,8 @@ class APIService:
                             plan = adjuster.plan(base_duration, r.date(), weather_by_date)
                             if r.date().isoformat() not in weather_by_date:
                                 plan['reason'] = 'Forecast not available yet, adjusted at run time'
+                                plan['reason_key'] = 'no_forecast'
+                                plan['reason_args'] = {}
                             planned.append({
                                 'at': r.isoformat(),
                                 'base_duration': base_duration,
@@ -663,12 +717,16 @@ class APIService:
                                 'percent': plan['percent'],
                                 'skip': plan['skip'],
                                 'reason': plan['reason'],
+                                'reason_key': plan['reason_key'],
+                                'reason_args': plan['reason_args'],
                                 'has_forecast': r.date().isoformat() in weather_by_date,
                             })
                     history = [
                         {'status': log['status'], 'start_time': log['start_time'] or log['timestamp'],
                          'duration': log['duration'], 'base_duration': log.get('base_duration'),
-                         'adjust_percent': log.get('adjust_percent'), 'adjust_note': log.get('adjust_note')}
+                         'adjust_percent': log.get('adjust_percent'),
+                         'adjust_note': decode_note(log.get('adjust_note'))['text'],
+                         'adjust_reason': decode_note(log.get('adjust_note'))}
                         for log in db.get_valve_logs(valve_id=valve_id, limit=5)
                     ]
                     valves.append({

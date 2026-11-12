@@ -1,20 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ro">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f3f6f5" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0e1413" media="(prefers-color-scheme: dark)">
-    <title>Strop · Irrigation</title>
+    <title>Strop · Irigații</title>
     <link rel="icon" href="favicon.png" type="image/png">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <link rel="stylesheet" href="styles.css?v=8">
+    <link rel="stylesheet" href="styles.css?v=9">
     <script>
         // Apply the saved theme before first paint (no flash)
         try {
             var t = localStorage.getItem('strop-theme');
             if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+            var l = localStorage.getItem('strop-lang');
+            document.documentElement.setAttribute('lang', l === 'en' ? 'en' : 'ro');
         } catch (e) {}
     </script>
 </head>
@@ -45,17 +47,20 @@
             <span class="brand-mark"><svg><use href="#i-drop"/></svg></span>
             <div>
                 <h1>Strop</h1>
-                <p class="brand-sub">Garden irrigation</p>
+                <p class="brand-sub" data-i18n="brand.sub">Irigarea grădinii</p>
             </div>
         </div>
         <div class="topbar-right">
-            <span class="conn" id="conn" title="Connection to controller">
-                <span class="conn-dot"></span><span class="conn-text">Connecting…</span>
+            <span class="conn" id="conn" data-i18n-attr="title:conn.title">
+                <span class="conn-dot"></span><span class="conn-text" data-i18n="conn.connecting">Se conectează…</span>
             </span>
-            <button class="icon-btn" id="logout" type="button" aria-label="Sign out" title="Sign out">
+            <button class="icon-btn lang-btn" id="lang-toggle" type="button" data-i18n-attr="aria-label:lang.toggle;title:lang.toggle">
+                <span id="lang-label">EN</span>
+            </button>
+            <button class="icon-btn" id="logout" type="button" data-i18n-attr="aria-label:logout;title:logout">
                 <svg><use href="#i-logout"/></svg>
             </button>
-            <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle dark mode">
+            <button class="icon-btn" id="theme-toggle" type="button" data-i18n-attr="aria-label:theme.toggle;title:theme.toggle">
                 <svg class="show-light"><use href="#i-moon"/></svg>
                 <svg class="show-dark"><use href="#i-sun"/></svg>
             </button>
@@ -65,49 +70,44 @@
     <main class="page">
         <section class="overview" id="overview" aria-live="polite">
             <div class="overview-main">
-                <p class="eyebrow">Today</p>
-                <p class="overview-title" id="overview-title">Loading…</p>
+                <p class="eyebrow" data-i18n="today">Azi</p>
+                <p class="overview-title" id="overview-title" data-i18n="loading">Se încarcă…</p>
                 <p class="overview-sub" id="overview-sub"></p>
             </div>
             <div class="overview-stats" id="overview-stats"></div>
         </section>
 
-        <section class="zones" id="zones" aria-label="Zones"></section>
+        <section class="zones" id="zones"></section>
 
         <section class="panel adjust-panel" id="adjust-panel" aria-labelledby="adjust-title">
             <div class="panel-head">
-                <h2 id="adjust-title">Weather adjustment</h2>
+                <h2 id="adjust-title" data-i18n="adj.title">Ajustare după vreme</h2>
                 <p class="panel-note" id="adjust-note"></p>
             </div>
             <div class="adjust-grid">
                 <div class="adjust-result">
                     <span class="adjust-big" id="adjust-big">–</span>
-                    <span class="adjust-of">of programmed time</span>
+                    <span class="adjust-of"></span>
                     <span class="adjust-verdict" id="adjust-verdict"></span>
                 </div>
                 <div class="factors" id="factors"></div>
             </div>
             <details class="method">
-                <summary>How is this calculated?</summary>
-                <p>Based on the Zimmerman method (OpenSprinkler): the programmed time is right for a typical summer day
-                    (<span id="m-base"></span>). Each degree colder removes <span id="m-temp"></span>, each % of humidity
-                    above the baseline removes <span id="m-hum"></span>, and each mm of rain removes <span id="m-rain"></span>.
-                    Rain counts from the two previous days, the run day and the next two days (forecasts count less).
-                    The time is never increased. Runs are skipped on frost risk, when it is too cold for grass to grow,
-                    or when less than <span id="m-min"></span> of the time would remain.</p>
+                <summary data-i18n="adj.how">Cum se calculează?</summary>
+                <p id="method-text"></p>
             </details>
         </section>
 
         <section class="panel" aria-labelledby="weather-title">
             <div class="panel-head">
-                <h2 id="weather-title">Weather &amp; watering</h2>
+                <h2 id="weather-title" data-i18n="w.title">Vreme și udare</h2>
                 <p class="panel-note" id="weather-note"></p>
             </div>
-            <div class="days" id="days" tabindex="0" aria-label="Past and upcoming days"></div>
+            <div class="days" id="days" tabindex="0" data-i18n-attr="aria-label:w.strip"></div>
             <div class="legend">
-                <span><i class="sw sw-z1"></i>Zone 1 watered</span>
-                <span><i class="sw sw-z2"></i>Zone 2 watered</span>
-                <span><i class="sw sw-plan"></i>Planned</span>
+                <span><i class="sw sw-z1"></i><span data-i18n="w.legendZ1">Zona 1 udată</span></span>
+                <span><i class="sw sw-z2"></i><span data-i18n="w.legendZ2">Zona 2 udată</span></span>
+                <span><i class="sw sw-plan"></i><span data-i18n="w.legendPlan">Planificat</span></span>
             </div>
         </section>
     </main>
@@ -137,8 +137,8 @@
 
                 <div class="zone-controls">
                     <div class="run-idle">
-                        <p class="ctl-label">Water now</p>
-                        <div class="chips quick" role="group" aria-label="Duration">
+                        <p class="ctl-label" data-i18n="zone.waterNow"></p>
+                        <div class="chips quick" role="group" data-i18n-attr="aria-label:zone.duration">
                             <button type="button" class="chip" data-min="5">5 min</button>
                             <button type="button" class="chip" data-min="10">10 min</button>
                             <button type="button" class="chip" data-min="15">15 min</button>
@@ -146,19 +146,19 @@
                         </div>
                         <div class="custom-run">
                             <label class="field-inline">
-                                <input type="number" class="input custom-min" min="1" max="60" step="1" inputmode="numeric" aria-label="Minutes">
+                                <input type="number" class="input custom-min" min="1" max="60" step="1" inputmode="numeric" data-i18n-attr="aria-label:zone.minutes">
                                 <span>min</span>
                             </label>
                             <button type="button" class="btn btn-primary start-btn">
-                                <svg><use href="#i-play"/></svg>Start
+                                <svg><use href="#i-play"/></svg><span data-i18n="zone.start"></span>
                             </button>
                         </div>
                     </div>
                     <div class="run-active">
-                        <p class="ctl-label">Watering</p>
+                        <p class="ctl-label" data-i18n="zone.watering"></p>
                         <p class="run-detail"></p>
                         <button type="button" class="btn btn-danger stop-btn">
-                            <svg><use href="#i-stop"/></svg>Stop now
+                            <svg><use href="#i-stop"/></svg><span data-i18n="zone.stop"></span>
                         </button>
                     </div>
                 </div>
@@ -167,13 +167,13 @@
             <div class="zone-section schedule">
                 <div class="section-row">
                     <div class="schedule-summary">
-                        <p class="ctl-label">Schedule</p>
+                        <p class="ctl-label" data-i18n="zone.schedule"></p>
                         <p class="schedule-text"></p>
                     </div>
                     <div class="schedule-actions">
-                        <button type="button" class="icon-btn edit-btn" aria-label="Edit schedule"><svg><use href="#i-edit"/></svg></button>
-                        <label class="switch" title="Enable schedule">
-                            <input type="checkbox" class="schedule-toggle" aria-label="Enable schedule">
+                        <button type="button" class="icon-btn edit-btn" data-i18n-attr="aria-label:zone.editSchedule;title:zone.editSchedule"><svg><use href="#i-edit"/></svg></button>
+                        <label class="switch" data-i18n-attr="title:zone.enableSchedule">
+                            <input type="checkbox" class="schedule-toggle" data-i18n-attr="aria-label:zone.enableSchedule">
                             <span class="switch-track"></span>
                         </label>
                     </div>
@@ -182,12 +182,12 @@
                 <div class="adjust" hidden>
                     <div class="adjust-values">
                         <div class="adjust-cell">
-                            <span class="adjust-label">Set</span>
+                            <span class="adjust-label" data-i18n="zone.set"></span>
                             <span class="adjust-set"></span>
                         </div>
                         <span class="adjust-arrow" aria-hidden="true">→</span>
                         <div class="adjust-cell">
-                            <span class="adjust-label adjust-when">Next run</span>
+                            <span class="adjust-label adjust-when"></span>
                             <span class="adjust-final"></span>
                         </div>
                         <span class="adjust-pct"></span>
@@ -198,38 +198,38 @@
 
                 <form class="editor" hidden>
                     <fieldset class="editor-days">
-                        <legend class="ctl-label">Days</legend>
+                        <legend class="ctl-label" data-i18n="ed.days"></legend>
                         <div class="chips days-chips"></div>
                     </fieldset>
                     <div class="editor-row">
                         <label class="field">
-                            <span class="ctl-label">Start time</span>
+                            <span class="ctl-label" data-i18n="ed.startTime"></span>
                             <input type="time" class="input ed-time" required>
                         </label>
                         <label class="field">
-                            <span class="ctl-label">Duration (min)</span>
+                            <span class="ctl-label" data-i18n="ed.duration"></span>
                             <input type="number" class="input ed-duration" min="1" max="60" step="1" inputmode="numeric" required>
                         </label>
                     </div>
                     <details class="advanced">
-                        <summary>Advanced (cron expression)</summary>
+                        <summary data-i18n="ed.advanced"></summary>
                         <label class="field">
-                            <span class="ctl-label">minute hour day month weekday · 0/7 = Sunday</span>
+                            <span class="ctl-label" data-i18n="ed.cronHint"></span>
                             <input type="text" class="input ed-cron" spellcheck="false" autocomplete="off" placeholder="30 6 * * 1,3,5">
                         </label>
                     </details>
                     <p class="editor-error" role="alert"></p>
                     <div class="editor-actions">
-                        <button type="button" class="btn btn-ghost danger-text ed-delete">Delete schedule</button>
+                        <button type="button" class="btn btn-ghost danger-text ed-delete" data-i18n="ed.delete"></button>
                         <span class="spacer"></span>
-                        <button type="button" class="btn btn-ghost ed-cancel">Cancel</button>
-                        <button type="submit" class="btn btn-primary ed-save">Save</button>
+                        <button type="button" class="btn btn-ghost ed-cancel" data-i18n="ed.cancel"></button>
+                        <button type="submit" class="btn btn-primary ed-save" data-i18n="ed.save"></button>
                     </div>
                 </form>
             </div>
 
             <div class="zone-section">
-                <p class="ctl-label">Recent</p>
+                <p class="ctl-label" data-i18n="zone.recent"></p>
                 <ul class="history"></ul>
             </div>
         </article>
@@ -238,21 +238,22 @@
     <div class="login" id="login" hidden>
         <form class="login-card" id="login-form" autocomplete="on">
             <span class="brand-mark login-mark"><svg><use href="#i-lock"/></svg></span>
-            <h2>Sign in to Strop</h2>
-            <p class="login-sub">Enter the controller password.</p>
+            <h2 data-i18n="login.title">Conectare la Strop</h2>
+            <p class="login-sub" data-i18n="login.sub">Introdu parola controllerului.</p>
             <input type="text" name="username" value="strop" autocomplete="username" hidden>
             <label class="field">
-                <span class="ctl-label">Password</span>
+                <span class="ctl-label" data-i18n="login.password">Parolă</span>
                 <input type="password" class="input" id="login-password" autocomplete="current-password" required>
             </label>
             <p class="editor-error" id="login-error" role="alert"></p>
             <p class="login-hint" id="login-hint"></p>
-            <button type="submit" class="btn btn-primary" id="login-submit">Sign in</button>
+            <button type="submit" class="btn btn-primary" id="login-submit" data-i18n="login.submit">Conectare</button>
         </form>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=8"></script>
+    <script src="i18n.js?v=9"></script>
+    <script src="app.js?v=9"></script>
 </body>
 </html>

@@ -6,9 +6,14 @@
  *     dashboard is reloaded only when something changed or every 5 minutes;
  *   - polling stops while the tab is hidden;
  *   - countdowns run locally in the browser.
+ *
+ * Texts come from i18n.js (Romanian by default, English optional).
  */
 (function () {
     'use strict';
+
+    var I18N = window.StropI18n;
+    var t = I18N.t;
 
     var API = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) || 'http://localhost:5000/api';
     var STATUS_POLL_MS = 15000;
@@ -16,11 +21,8 @@
     var MAX_MINUTES = 60;
     var DIAL_LENGTH = 326.73; // circumference of the dial ring (r = 52)
     var VALVES = [1, 2];
-    var LOCALE = 'en-GB';
     // Display order Monday..Sunday with standard cron numbers (0 = Sunday)
-    var WEEK = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
-    var DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    var DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var WEEK = [1, 2, 3, 4, 5, 6, 0];
 
     var state = {
         dashboard: null,
@@ -30,8 +32,8 @@
         zones: {},           // valve id -> DOM refs
         editing: {},         // valve id -> true while editor open
         busy: {},
-        pollTimer: null,
-        scrolledDays: false
+        scrolledDays: false,
+        locked: false
     };
 
     // ------------------------------------------------------------------ utils
@@ -46,22 +48,28 @@
     function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
     function dayDiff(a, b) { return Math.round((startOfDay(a) - startOfDay(b)) / 86400000); }
     function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
-    function shortDate(d) { return d.getDate() + ' ' + d.toLocaleString(LOCALE, { month: 'short' }); }
+    function monthShort(d) { return d.toLocaleString(I18N.locale(), { month: 'short' }).replace('.', ''); }
+    function shortDate(d) { return d.getDate() + ' ' + monthShort(d); }
+    function dayShort(d) { return t('days.short')[d.getDay()]; }
 
+    // "Today", "Tomorrow", "Thursday" / "Joi", "Thu 19 Nov" / "Joi 19 nov"
     function relativeDay(d) {
         var diff = dayDiff(d, new Date());
-        if (diff === 0) return 'Today';
-        if (diff === 1) return 'Tomorrow';
-        if (diff === -1) return 'Yesterday';
-        if (diff > 1 && diff < 7) return DAY_NAMES[d.getDay()];
-        return DAY_SHORT[d.getDay()] + ' ' + shortDate(d);
+        if (diff === 0) return t('day.today');
+        if (diff === 1) return t('day.tomorrow');
+        if (diff === -1) return t('day.yesterday');
+        if (diff > 1 && diff < 7) return t('days.longCap')[d.getDay()];
+        return dayShort(d) + ' ' + shortDate(d);
     }
 
-    // Mid-sentence form: "today", "tomorrow", "on Thursday", "on Thu 19 Nov"
+    // Mid-sentence form: "today" / "azi", "on Thursday" / "joi"
     function phraseDay(d) {
-        var r = relativeDay(d);
-        if (r === 'Today' || r === 'Tomorrow' || r === 'Yesterday') return r.toLowerCase();
-        return 'on ' + r;
+        var diff = dayDiff(d, new Date());
+        if (diff === 0) return t('phrase.today');
+        if (diff === 1) return t('phrase.tomorrow');
+        if (diff === -1) return t('phrase.yesterday');
+        var name = (diff > 1 && diff < 7) ? t('days.long')[d.getDay()] : dayShort(d) + ' ' + shortDate(d);
+        return t('phrase.on', { day: name });
     }
 
     function fmtDuration(seconds) {
@@ -88,6 +96,41 @@
         var d = new Date(String(s).replace(' ', 'T'));
         return isNaN(d) ? null : d;
     }
+    function zoneName(id) { return t('zone.name', { n: id }); }
+
+    // ------------------------------------------------------------------ reasons & errors (backend codes)
+    function reasonText(key, args, fallback) {
+        args = args || {};
+        if (!key) return fallback || '';
+        if (key === 'not_needed') return t('r.not_needed.' + (args.factor || 'rain'), args);
+        if (key === 'reduced') {
+            return (args.factors || []).map(function (f) { return t('r.f.' + f, args); }).join(', ');
+        }
+        var s = t('r.' + key, args);
+        return s === 'r.' + key ? (fallback || '') : s;
+    }
+    function planReason(p) { return reasonText(p.reason_key, p.reason_args, p.reason); }
+    function shortReason(p) {
+        if (p.reason_key === 'not_needed') return t('r.f.' + ((p.reason_args || {}).factor || 'rain'), { rain: (p.reason_args || {}).rain })
+            .replace(/ \d+ mm$/, '');
+        var s = t('r.short.' + p.reason_key);
+        return s === 'r.short.' + p.reason_key ? planReason(p) : s;
+    }
+
+    function errorText(err) {
+        var d = err.data || {};
+        switch (d.code) {
+            case 'wrong_password': return t('e.wrong_password');
+            case 'rate_limited': return t('e.rate_limited', { min: d.retry_minutes || 15 });
+            case 'not_configured': return t('e.not_configured');
+            case 'already_active': return t('e.already_active');
+            case 'invalid_duration': return t('e.invalid_duration');
+            case 'invalid_cron': return t('e.invalid_cron', { detail: d.message || '' });
+        }
+        if (err.kind === 'timeout') return t('e.timeout');
+        if (err.kind === 'unreachable') return t('e.unreachable');
+        return d.message || err.message || t('e.request', { status: err.status || '?' });
+    }
 
     // ------------------------------------------------------------------ auth token
     var TOKEN_KEY = 'strop-token';
@@ -106,7 +149,7 @@
     function api(path, options) {
         options = options || {};
         var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        var t = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : null;
+        var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : null;
         var init = { method: options.method || 'GET', headers: {} };
         if (ctrl) init.signal = ctrl.signal;
         var token = getToken();
@@ -116,11 +159,12 @@
             init.body = JSON.stringify(options.body);
         }
         return fetch(API + path, init).then(function (res) {
-            if (t) clearTimeout(t);
+            if (timer) clearTimeout(timer);
             return res.json().catch(function () { return {}; }).then(function (data) {
                 if (!res.ok) {
-                    var err = new Error(data.message || data.error || ('Request failed (' + res.status + ')'));
+                    var err = new Error(data.message || data.error || ('HTTP ' + res.status));
                     err.status = res.status;
+                    err.data = data;
                     if (res.status === 401 && data.auth_required) {
                         err.auth = true;
                         setToken(null);
@@ -131,8 +175,10 @@
                 return data;
             });
         }, function (e) {
-            if (t) clearTimeout(t);
-            throw new Error(e && e.name === 'AbortError' ? 'Controller not responding' : 'Controller unreachable');
+            if (timer) clearTimeout(timer);
+            var err = new Error(e && e.name === 'AbortError' ? 'timeout' : 'unreachable');
+            err.kind = e && e.name === 'AbortError' ? 'timeout' : 'unreachable';
+            throw err;
         });
     }
 
@@ -146,10 +192,12 @@
         toastTimer = setTimeout(function () { el.className = 'toast' + (isError ? ' error' : ''); }, isError ? 5000 : 3000);
     }
 
+    var connState = null;
     function setConnection(ok) {
+        connState = ok;
         var el = $('#conn');
         el.className = 'conn ' + (ok ? 'ok' : 'err');
-        $('.conn-text', el).textContent = ok ? 'Online · ' + hhmm(new Date()) : 'Offline';
+        $('.conn-text', el).textContent = ok ? t('conn.online', { time: hhmm(new Date()) }) : t('conn.offline');
     }
 
     // ------------------------------------------------------------------ cron helpers
@@ -176,28 +224,28 @@
     }
 
     function buildCron(days, time) {
-        var t = time.split(':');
-        var dow = days.length === 7 ? '*' : WEEK.map(function (w) { return w[0]; })
-            .filter(function (d) { return days.indexOf(d) !== -1; }).join(',');
-        return Number(t[1]) + ' ' + Number(t[0]) + ' * * ' + dow;
+        var parts = time.split(':');
+        var dow = days.length === 7 ? '*' : WEEK.filter(function (d) { return days.indexOf(d) !== -1; }).join(',');
+        return Number(parts[1]) + ' ' + Number(parts[0]) + ' * * ' + dow;
     }
 
     function describeDays(days) {
-        if (!days || !days.length) return 'No days';
-        if (days.length === 7) return 'Every day';
+        if (!days || !days.length) return t('days.none');
+        if (days.length === 7) return t('days.every');
         var sorted = days.slice().sort();
-        if (sorted.join() === '1,2,3,4,5') return 'Weekdays';
-        if (sorted.join() === '0,6') return 'Weekends';
-        return WEEK.filter(function (w) { return days.indexOf(w[0]) !== -1; })
-            .map(function (w) { return w[1]; }).join(', ');
+        if (sorted.join() === '1,2,3,4,5') return t('days.weekdays');
+        if (sorted.join() === '0,6') return t('days.weekends');
+        var names = t('days.short');
+        return WEEK.filter(function (d) { return days.indexOf(d) !== -1; })
+            .map(function (d) { return names[d]; }).join(', ');
     }
 
     function describeSchedule(schedule) {
-        if (!schedule.cron_expression) return 'Not set';
+        if (!schedule.cron_expression) return t('sched.notSet');
         var p = parseSchedule(schedule.cron_expression);
         var dur = schedule.duration ? ' · ' + fmtDuration(schedule.duration) : '';
-        if (p && p.simple) return describeDays(p.days) + ' at ' + pad(p.hour) + ':' + pad(p.minute) + dur;
-        return 'Custom: ' + schedule.cron_expression + dur;
+        if (p && p.simple) return t('sched.at', { days: describeDays(p.days), time: pad(p.hour) + ':' + pad(p.minute) }) + dur;
+        return t('sched.custom', { expr: schedule.cron_expression }) + dur;
     }
 
     // ------------------------------------------------------------------ weather helpers
@@ -229,11 +277,12 @@
         var node = document.importNode($('#zone-template').content, true).firstElementChild;
         node.style.setProperty('--zone-color', zoneColor(id));
         node.dataset.valve = id;
-        $('.zone-name', node).textContent = 'Zone ' + id;
         $('#zones').appendChild(node);
 
         var refs = {
+            id: id,
             root: node,
+            name: $('.zone-name', node),
             next: $('.zone-next', node),
             pill: $('.pill', node),
             dial: $('.dial', node),
@@ -264,12 +313,11 @@
             adjReason: $('.adjust-reason', node)
         };
 
-        WEEK.forEach(function (w) {
+        WEEK.forEach(function (d) {
             var b = document.createElement('button');
             b.type = 'button';
             b.className = 'chip';
-            b.dataset.dow = w[0];
-            b.textContent = w[1];
+            b.dataset.dow = d;
             b.setAttribute('aria-pressed', 'false');
             refs.dayChips.appendChild(b);
         });
@@ -309,31 +357,43 @@
         // default quick duration: 10 min
         $('.quick .chip[data-min="10"]', node).click();
         state.zones[id] = refs;
+        translateZone(refs);
         return refs;
+    }
+
+    // Texts of a zone card that do not depend on data
+    function translateZone(z) {
+        I18N.apply(z.root);
+        z.name.textContent = zoneName(z.id);
+        var names = t('days.short');
+        $all('.chip', z.dayChips).forEach(function (c) { c.textContent = names[Number(c.dataset.dow)]; });
+        tickZone(z.id);
     }
 
     function renderZone(v) {
         var z = state.zones[v.id] || createZone(v.id);
         var schedule = v.schedule || {};
         z.root.classList.toggle('is-open', !!v.open);
-        z.pill.textContent = v.open ? 'Watering' : 'Idle';
+        z.pill.textContent = v.open ? t('zone.watering') : t('zone.idle');
 
         // next run line (with the weather-adjusted duration)
         var plan = schedule.enabled && schedule.planned && schedule.planned.length ? schedule.planned[0] : null;
         var next = plan ? parseDate(plan.at) : null;
         if (next) {
-            z.next.textContent = 'Next: ' + relativeDay(next) + ' at ' + hhmm(next) + ' · ' +
-                (plan.skip ? 'skipped' : fmtDuration(plan.duration));
+            z.next.textContent = t('zone.next', {
+                day: relativeDay(next), time: hhmm(next),
+                what: plan.skip ? t('zone.skipped') : fmtDuration(plan.duration)
+            });
         } else {
-            z.next.textContent = schedule.cron_expression ? 'Schedule off' : 'No schedule';
+            z.next.textContent = schedule.cron_expression ? t('zone.scheduleOff') : t('zone.noSchedule');
         }
-        renderAdjust(z, schedule, plan, next);
+        renderAdjust(z, plan, next);
 
         // countdown state
         if (v.open && v.remaining != null) {
             state.timers[v.id] = { endAt: Date.now() + v.remaining * 1000, duration: v.duration || v.remaining };
             var started = parseDate(v.started_at);
-            z.runDetail.textContent = (started ? 'Started ' + hhmm(started) + ' · ' : '') + fmtDuration(v.duration) + ' run';
+            z.runDetail.textContent = t('zone.started', { time: started ? hhmm(started) : '—', dur: fmtDuration(v.duration) });
         } else {
             delete state.timers[v.id];
         }
@@ -350,30 +410,30 @@
         renderHistory(z, v.history || []);
     }
 
-    function renderAdjust(z, schedule, plan, next) {
+    function renderAdjust(z, plan, next) {
         if (!plan) { z.adjust.hidden = true; return; }
         z.adjust.hidden = false;
         z.adjust.classList.toggle('skip', !!plan.skip);
         z.adjust.classList.toggle('reduced', !plan.skip && plan.percent < 100);
         z.adjSet.textContent = fmtDuration(plan.base_duration);
-        z.adjWhen.textContent = 'Adjusted · ' + relativeDay(next);
-        z.adjFinal.textContent = plan.skip ? 'Skipped' : fmtDuration(plan.duration);
+        z.adjWhen.textContent = t('zone.adjusted', { day: relativeDay(next) });
+        z.adjFinal.textContent = plan.skip ? t('adj.skip') : fmtDuration(plan.duration);
         z.adjPct.textContent = plan.percent + '%';
         z.adjFill.style.width = Math.max(0, Math.min(100, plan.percent)) + '%';
-        z.adjReason.textContent = plan.reason || '';
+        z.adjReason.textContent = planReason(plan);
     }
 
     function tickZone(id) {
         var z = state.zones[id];
         if (!z) return;
-        var t = state.timers[id];
-        if (t) {
-            var left = Math.max(0, (t.endAt - Date.now()) / 1000);
-            var frac = t.duration ? left / t.duration : 0;
+        var timer = state.timers[id];
+        if (timer) {
+            var left = Math.max(0, (timer.endAt - Date.now()) / 1000);
+            var frac = timer.duration ? left / timer.duration : 0;
             z.bar.style.strokeDashoffset = String(DIAL_LENGTH * (1 - frac));
             z.time.textContent = fmtClock(left);
-            z.label.textContent = 'remaining';
-            z.dial.setAttribute('aria-label', 'Zone ' + id + ': ' + fmtDuration(left) + ' remaining');
+            z.label.textContent = t('zone.remaining');
+            z.dial.setAttribute('aria-label', t('zone.ariaRemaining', { n: id, time: fmtDuration(left) }));
             if (left <= 0 && !state.busy['expire' + id]) {
                 // timer ended on the controller: confirm shortly after
                 state.busy['expire' + id] = true;
@@ -381,41 +441,43 @@
             }
         } else {
             z.bar.style.strokeDashoffset = String(DIAL_LENGTH);
-            z.time.textContent = 'Off';
-            z.label.textContent = 'valve closed';
-            z.dial.setAttribute('aria-label', 'Zone ' + id + ': valve closed');
+            z.time.textContent = t('zone.off');
+            z.label.textContent = t('zone.closed');
+            z.dial.setAttribute('aria-label', t('zone.ariaClosed', { n: id }));
         }
     }
 
     function renderHistory(z, history) {
         if (!history.length) {
-            z.history.innerHTML = '<li class="empty">No activity yet</li>';
+            z.history.innerHTML = '<li class="empty">' + escapeHtml(t('zone.noActivity')) + '</li>';
             return;
         }
         var map = {
-            'Finished': ['h-finished', 'Completed'],
-            'Manually Stopped': ['h-stopped', 'Stopped'],
-            'Terminated': ['h-terminated', 'Interrupted'],
-            'Opened': ['h-open', 'Running'],
-            'Skipped': ['h-skipped', 'Skipped']
+            'Finished': ['h-finished', 'h.finished'],
+            'Manually Stopped': ['h-stopped', 'h.stopped'],
+            'Terminated': ['h-terminated', 'h.terminated'],
+            'Watchdog Stopped': ['h-terminated', 'h.watchdog'],
+            'Opened': ['h-open', 'h.running'],
+            'Skipped': ['h-skipped', 'h.skipped']
         };
         z.history.innerHTML = history.slice(0, 4).map(function (h) {
-            var m = map[h.status] || ['', h.status];
+            var m = map[h.status];
+            var label = m ? t(m[1]) : h.status;
             var d = parseDate(h.start_time);
             var when = d ? relativeDay(d) + ', ' + hhmm(d) : '—';
+            var reduced = h.base_duration && h.adjust_percent != null && h.adjust_percent < 100;
             var what;
             if (h.status === 'Skipped') {
-                what = m[1] + (h.adjust_note ? ' · ' + h.adjust_note : '');
+                var r = h.adjust_reason || {};
+                var why = reasonText(r.key, r.args, h.adjust_note);
+                what = label + (why ? ' · ' + why : '');
             } else if (h.status === 'Opened') {
-                what = m[1] + (h.base_duration && h.adjust_percent != null && h.adjust_percent < 100
-                    ? ' · ' + h.adjust_percent + '% of ' + fmtDuration(h.base_duration) : '');
+                what = label + (reduced ? ' · ' + t('h.pctOf', { pct: h.adjust_percent, base: fmtDuration(h.base_duration) }) : '');
             } else {
-                what = m[1] + (h.duration != null ? ' · ' + fmtDuration(h.duration) : '');
-                if (h.base_duration && h.adjust_percent != null && h.adjust_percent < 100) {
-                    what += ' of ' + fmtDuration(h.base_duration);
-                }
+                var dur = h.duration != null ? fmtDuration(h.duration) : '';
+                what = label + (dur ? ' · ' + (reduced ? t('h.of', { dur: dur, base: fmtDuration(h.base_duration) }) : dur) : '');
             }
-            return '<li class="' + m[0] + '"><span class="h-dot"></span><span class="h-when">' + escapeHtml(when) +
+            return '<li class="' + (m ? m[0] : '') + '"><span class="h-dot"></span><span class="h-when">' + escapeHtml(when) +
                 '</span><span class="h-what">' + escapeHtml(what) + '</span></li>';
         }).join('');
     }
@@ -431,14 +493,14 @@
         var z = state.zones[id];
         var minutes = parseInt(z.custom.value, 10);
         if (!(minutes >= 1 && minutes <= MAX_MINUTES)) {
-            toast('Choose between 1 and ' + MAX_MINUTES + ' minutes', true);
+            toast(t('t.minutes', { max: MAX_MINUTES }), true);
             z.custom.focus();
             return;
         }
         withBusy(z.start, function () {
             return api('/valves/' + id + '/activate', { method: 'POST', body: { duration: minutes * 60 } })
-                .then(function () { toast('Zone ' + id + ' watering for ' + minutes + ' min'); return loadDashboard(); })
-                .catch(function (e) { toast(e.message, true); return loadDashboard(); });
+                .then(function () { toast(t('t.started', { n: id, min: minutes })); return loadDashboard(); })
+                .catch(function (e) { toast(errorText(e), true); return loadDashboard(); });
         });
     }
 
@@ -446,8 +508,8 @@
         var z = state.zones[id];
         withBusy(z.stop, function () {
             return api('/valves/' + id + '/deactivate', { method: 'POST' })
-                .then(function () { toast('Zone ' + id + ' stopped'); return loadDashboard(); })
-                .catch(function (e) { toast(e.message, true); return loadDashboard(); });
+                .then(function () { toast(t('t.stopped', { n: id })); return loadDashboard(); })
+                .catch(function (e) { toast(errorText(e), true); return loadDashboard(); });
         });
     }
 
@@ -465,8 +527,8 @@
         state.busy['toggle' + id] = true;
         z.toggle.disabled = true;
         postSchedule(id, expr, Number(z.root.dataset.duration) || 300, enabled)
-            .then(function () { toast('Zone ' + id + ' schedule ' + (enabled ? 'on' : 'off')); })
-            .catch(function (e) { z.toggle.checked = !enabled; toast(e.message, true); })
+            .then(function () { toast(t(enabled ? 't.scheduleOn' : 't.scheduleOff', { n: id })); })
+            .catch(function (e) { z.toggle.checked = !enabled; toast(errorText(e), true); })
             .then(function () { state.busy['toggle' + id] = false; return loadDashboard(); });
     }
 
@@ -526,15 +588,15 @@
         z.edError.textContent = '';
 
         if (!(minutes >= 1 && minutes <= MAX_MINUTES)) {
-            z.edError.textContent = 'Duration must be between 1 and ' + MAX_MINUTES + ' minutes.';
+            z.edError.textContent = t('ed.errDuration', { max: MAX_MINUTES });
             return;
         }
         if (manual) {
             expr = z.edCron.value.trim();
         } else {
             var days = selectedDays(z);
-            if (!days.length) { z.edError.textContent = 'Pick at least one day.'; return; }
-            if (!z.edTime.value) { z.edError.textContent = 'Pick a start time.'; return; }
+            if (!days.length) { z.edError.textContent = t('ed.errDays'); return; }
+            if (!z.edTime.value) { z.edError.textContent = t('ed.errTime'); return; }
             expr = buildCron(days, z.edTime.value);
         }
         var hadSchedule = !!z.root.dataset.cron;
@@ -544,29 +606,33 @@
             return postSchedule(id, expr, minutes * 60, enabled)
                 .then(function () {
                     closeEditor(id);
-                    toast('Zone ' + id + ' schedule saved' + (enabled ? '' : ' (off)'));
+                    toast(t(enabled ? 't.saved' : 't.savedOff', { n: id }));
                     return loadDashboard();
                 })
-                .catch(function (e) { z.edError.textContent = e.message; });
+                .catch(function (e) { z.edError.textContent = errorText(e); });
         });
     }
 
     function deleteSchedule(id) {
-        if (!window.confirm('Delete the schedule for Zone ' + id + '?')) return;
+        if (!window.confirm(t('ed.confirmDelete', { n: id }))) return;
         api('/valves/' + id + '/cron', { method: 'DELETE' })
-            .then(function () { closeEditor(id); toast('Zone ' + id + ' schedule deleted'); return loadDashboard(); })
-            .catch(function (e) { toast(e.message, true); });
+            .then(function () { closeEditor(id); toast(t('t.deleted', { n: id })); return loadDashboard(); })
+            .catch(function (e) { toast(errorText(e), true); });
     }
 
     // ------------------------------------------------------------------ overview
+    function remainingText(timer) {
+        return t('ov.remaining', { time: fmtDuration((timer.endAt - Date.now()) / 1000) });
+    }
+
     function renderOverview(d) {
         var el = $('#overview');
         var open = d.valves.filter(function (v) { return v.open; });
         var title, sub = '';
         if (open.length) {
-            title = open.map(function (v) { return 'Zone ' + v.id; }).join(' & ') + ' watering';
-            var t = state.timers[open[0].id];
-            sub = t ? fmtDuration((t.endAt - Date.now()) / 1000) + ' remaining' : '';
+            title = t('ov.watering', { zones: open.map(function (v) { return zoneName(v.id); }).join(t('ov.and')) });
+            var timer = state.timers[open[0].id];
+            sub = timer ? remainingText(timer) : '';
         } else {
             // all upcoming runs of all zones, in time order
             var upcoming = [];
@@ -583,23 +649,25 @@
             if (skippedBefore.length) {
                 var reasons = [];
                 skippedBefore.forEach(function (u) {
-                    var r = u.plan.reason.replace(/^Not needed: /, '').replace(/ \(.*\)$/, '').toLowerCase();
+                    var r = shortReason(u.plan);
                     if (reasons.indexOf(r) === -1) reasons.push(r);
                 });
-                skipNote = skippedBefore.length + ' run' + (skippedBefore.length > 1 ? 's' : '') + ' skipped before (' + reasons.join(', ') + ')';
+                skipNote = skippedBefore.length === 1
+                    ? t('ov.skippedBeforeOne', { reasons: reasons.join(', ') })
+                    : t('ov.skippedBefore', { n: skippedBefore.length, reasons: reasons.join(', ') });
             }
             if (firstRun) {
                 var u = firstRun;
-                title = 'Next watering ' + phraseDay(u.at) + ' at ' + hhmm(u.at);
-                sub = 'Zone ' + u.id + ' · ' + fmtDuration(u.plan.duration) +
-                    (u.plan.percent < 100 ? ' of ' + fmtDuration(u.plan.base_duration) + ' (' + u.plan.percent + '%)' : '') +
-                    (skipNote ? ' · ' + skipNote : '');
+                title = t('ov.next', { day: phraseDay(u.at), time: hhmm(u.at) });
+                sub = zoneName(u.id) + ' · ' + (u.plan.percent < 100
+                    ? t('ov.of', { dur: fmtDuration(u.plan.duration), base: fmtDuration(u.plan.base_duration), pct: u.plan.percent })
+                    : fmtDuration(u.plan.duration)) + (skipNote ? ' · ' + skipNote : '');
             } else if (upcoming.length) {
-                title = 'No watering needed in the coming days';
+                title = t('ov.noneNeeded');
                 sub = skipNote;
             } else {
-                title = 'All schedules are off';
-                sub = 'Nothing will water automatically';
+                title = t('ov.allOff');
+                sub = t('ov.nothing');
             }
         }
         el.classList.toggle('watering', open.length > 0);
@@ -608,17 +676,18 @@
         var todayKey = localDateKey(new Date());
         var w = d.weather.filter(function (x) { return x.date === todayKey; })[0];
         if (w) {
-            sub += (sub ? ' · ' : '') + Math.round(w.temperature_minimum) + '° / ' + Math.round(w.temperature_maximum) + '° ' + (w.description || '');
+            sub += (sub ? ' · ' : '') + Math.round(w.temperature_minimum) + '° / ' + Math.round(w.temperature_maximum) + '° ' +
+                I18N.weather(w.description);
         }
         $('#overview-sub').textContent = sub;
 
         // stats
         var todaySec = 0, weekSec = 0;
         VALVES.forEach(function (id) {
-            var u = d.usage[id] || {};
-            Object.keys(u).forEach(function (k) {
-                weekSec += u[k];
-                if (k === todayKey) todaySec += u[k];
+            var usage = d.usage[id] || {};
+            Object.keys(usage).forEach(function (k) {
+                weekSec += usage[k];
+                if (k === todayKey) todaySec += usage[k];
             });
         });
         var rain3 = 0;
@@ -627,12 +696,12 @@
             d.weather.forEach(function (x) { if (x.date === key) rain3 += x.total_rain || 0; });
         }
         $('#overview-stats').innerHTML =
-            stat('Watered today', Math.round(todaySec / 60), 'min') +
-            stat('Last 7 days', Math.round(weekSec / 60), 'min') +
-            stat('Rain next 3 days', rain3 ? rain3.toFixed(1) : '0', 'mm');
+            stat(t('stat.today'), Math.round(todaySec / 60), 'min') +
+            stat(t('stat.week'), Math.round(weekSec / 60), 'min') +
+            stat(t('stat.rain'), rain3 ? rain3.toFixed(1) : '0', 'mm');
     }
     function stat(label, value, unit) {
-        return '<div class="stat"><div class="stat-label">' + label + '</div><div class="stat-value">' +
+        return '<div class="stat"><div class="stat-label">' + escapeHtml(label) + '</div><div class="stat-value">' +
             value + ' <small>' + unit + '</small></div></div>';
     }
 
@@ -659,18 +728,18 @@
             var w = byDate[key];
             var cls = 'day' + (i < 0 ? ' past' : '') + (i === 0 ? ' today' : '');
             html += '<div class="' + cls + '"' + (i === 0 ? ' id="day-today"' : '') + '>';
-            html += '<div class="day-name">' + (i === 0 ? 'Today' : DAY_SHORT[day.getDay()]) + '</div>';
-            html += '<div class="day-date">' + shortDate(day) + '</div>';
+            html += '<div class="day-name">' + escapeHtml(i === 0 ? t('day.today') : dayShort(day)) + '</div>';
+            html += '<div class="day-date">' + escapeHtml(shortDate(day)) + '</div>';
             if (w) {
                 var rain = w.total_rain || 0;
-                html += '<span title="' + escapeHtml(w.description || '') + '">' + icon(weatherIcon(w.description), 'day-icon') + '</span>';
+                html += '<span title="' + escapeHtml(I18N.weather(w.description)) + '">' + icon(weatherIcon(w.description), 'day-icon') + '</span>';
                 html += '<div class="day-temp">' + Math.round(w.temperature_maximum) + '° <span class="lo">' +
                     Math.round(w.temperature_minimum) + '°</span></div>';
                 html += '<div class="day-rain' + (rain >= 0.1 ? ' wet' : '') + '">' + icon('i-drop') +
                     (rain >= 0.1 ? rain.toFixed(1) + ' mm' : '0 mm') + '</div>';
-                if (w.average_humidity) html += '<div class="day-hum">' + w.average_humidity + '% hum.</div>';
+                if (w.average_humidity) html += '<div class="day-hum">' + escapeHtml(t('w.hum', { h: w.average_humidity })) + '</div>';
             } else {
-                html += icon('w-none', 'day-icon') + '<div class="day-nodata">No data</div>';
+                html += icon('w-none', 'day-icon') + '<div class="day-nodata">' + escapeHtml(t('w.noData')) + '</div>';
             }
             html += '<div class="day-water">';
             VALVES.forEach(function (id) {
@@ -679,10 +748,10 @@
             });
             (planned[key] || []).forEach(function (p) {
                 if (i < 0 || p.at < new Date()) return;
-                var label = p.plan.skip ? 'skip' : minutesShort(p.plan.duration);
-                html += '<span class="tag tag-plan' + (p.plan.skip ? ' tag-skip' : '') + '" title="' +
-                    escapeHtml(fmtDuration(p.plan.base_duration) + ' set · ' + p.plan.percent + '% · ' + p.plan.reason) + '">Z' +
-                    p.id + ' ' + hhmm(p.at) + ' · ' + label + '</span>';
+                var label = p.plan.skip ? t('w.skip') : minutesShort(p.plan.duration);
+                var title = t('w.tagTitle', { base: fmtDuration(p.plan.base_duration), pct: p.plan.percent, reason: planReason(p.plan) });
+                html += '<span class="tag tag-plan' + (p.plan.skip ? ' tag-skip' : '') + '" title="' + escapeHtml(title) + '">Z' +
+                    p.id + ' ' + hhmm(p.at) + ' · ' + escapeHtml(label) + '</span>';
             });
             html += '</div></div>';
         }
@@ -690,7 +759,7 @@
         box.innerHTML = html;
 
         var updated = parseDate(d.weather_updated);
-        $('#weather-note').textContent = updated ? 'Forecast updated ' + phraseDay(updated) + ' at ' + hhmm(updated) : '';
+        $('#weather-note').textContent = updated ? t('w.updated', { day: phraseDay(updated), time: hhmm(updated) }) : '';
 
         if (!state.scrolledDays) {
             // show a couple of past days to the left of today
@@ -711,34 +780,45 @@
         var s = a.settings || {};
         var runDay = parseDate(a.date + 'T12:00:00');
         var hasRun = d.valves.some(function (v) { return v.schedule.enabled && v.schedule.planned && v.schedule.planned.length; });
-        $('#adjust-note').textContent = (hasRun ? 'For the next run, ' : 'If watering ') + phraseDay(runDay) +
-            (a.enabled ? '' : ' · adjustment disabled');
+        $('#adjust-note').textContent = t(hasRun ? 'adj.forNext' : 'adj.ifWatering', { day: phraseDay(runDay) }) +
+            (a.enabled ? '' : t('adj.disabled'));
 
-        $('#adjust-big').textContent = a.skip ? 'Skip' : a.percent + '%';
-        $('.adjust-of').textContent = a.skip ? 'run skipped' : 'of programmed time';
+        $('#adjust-big').textContent = a.skip ? t('adj.skip') : a.percent + '%';
+        $('.adjust-of').textContent = a.skip ? t('adj.runSkipped') : t('adj.ofProgrammed');
         $('#adjust-panel').classList.toggle('skip', !!a.skip);
-        $('#adjust-verdict').textContent = a.reason || '';
+        $('#adjust-verdict').textContent = reasonText(a.reason_key, a.reason_args, a.reason);
 
-        var inp = a.inputs || {}, t = a.terms || {};
+        var inp = a.inputs || {}, terms = a.terms || {};
         function row(name, value, base, term) {
-            var w = Math.min(100, Math.abs(term));
-            return '<div class="factor"><div class="factor-head"><span class="factor-name">' + name +
+            var width = Math.min(100, Math.abs(term));
+            return '<div class="factor"><div class="factor-head"><span class="factor-name">' + escapeHtml(name) +
                 '</span><span class="factor-term ' + (term < 0 ? 'neg' : term > 0 ? 'pos' : '') + '">' + signed(term) +
-                '</span></div><div class="factor-detail">' + value + (base ? ' <span class="factor-base">· baseline ' + base + '</span>' : '') +
-                '</div><div class="factor-bar"><span class="' + (term < 0 ? 'neg' : 'pos') + '" style="width:' + w + '%"></span></div></div>';
+                '</span></div><div class="factor-detail">' + escapeHtml(value) +
+                (base ? ' <span class="factor-base">' + escapeHtml(t('adj.baseline', { v: base })) + '</span>' : '') +
+                '</div><div class="factor-bar"><span class="' + (term < 0 ? 'neg' : 'pos') + '" style="width:' + width + '%"></span></div></div>';
         }
         $('#factors').innerHTML =
-            row('Temperature', inp.temp != null ? inp.temp + '°C average' : 'no data', s.base_temp + '°C', t.temp || 0) +
-            row('Humidity', inp.humidity != null ? inp.humidity + '% average' : 'no data', s.base_humidity + '%', t.humidity || 0) +
-            row('Rain', (inp.rain || 0) + ' mm weighted (2 days before → 2 days after)', '', t.rain || 0) +
-            (inp.min_temp != null ? '<p class="factor-foot">Minimum that day ' + inp.min_temp + '°C · frost skip at ≤ ' +
-                s.freeze_temp + '°C · cold skip below ' + s.cold_temp + '°C average</p>' : '');
+            row(t('adj.temperature'), inp.temp != null ? t('adj.avgTemp', { v: inp.temp }) : t('adj.noData'), s.base_temp + '°C', terms.temp || 0) +
+            row(t('adj.humidity'), inp.humidity != null ? t('adj.avgHum', { v: inp.humidity }) : t('adj.noData'), s.base_humidity + '%', terms.humidity || 0) +
+            row(t('adj.rain'), t('adj.rainWeighted', { v: inp.rain || 0 }), '', terms.rain || 0) +
+            (inp.min_temp != null ? '<p class="factor-foot">' + escapeHtml(t('adj.minFoot', {
+                min: inp.min_temp, freeze: s.freeze_temp, cold: s.cold_temp })) + '</p>' : '');
 
-        $('#m-base').textContent = s.base_temp + '°C average, ' + s.base_humidity + '% humidity, no rain';
-        $('#m-temp').textContent = s.temp_pct_per_c + '%';
-        $('#m-hum').textContent = s.humidity_pct_per_pct + '%';
-        $('#m-rain').textContent = s.rain_pct_per_mm + '%';
-        $('#m-min').textContent = s.min_percent + '%';
+        $('#method-text').textContent = t('adj.method', {
+            base: t('adj.methodBase', { t: s.base_temp, h: s.base_humidity }),
+            temp: s.temp_pct_per_c + '%',
+            hum: s.humidity_pct_per_pct + '%',
+            rain: s.rain_pct_per_mm + '%',
+            min: s.min_percent + '%'
+        });
+    }
+
+    // ------------------------------------------------------------------ rendering
+    function renderAll(d) {
+        d.valves.forEach(renderZone);
+        renderOverview(d);
+        renderAdjustPanel(d);
+        renderDays(d);
     }
 
     // ------------------------------------------------------------------ loading
@@ -749,17 +829,14 @@
             state.dashboard = d;
             state.lastDashboardAt = Date.now();
             state.statusKey = d.valves.map(function (v) { return v.id + ':' + !!v.open; }).join(',');
-            d.valves.forEach(renderZone);
-            renderOverview(d);
-            renderAdjustPanel(d);
-            renderDays(d);
+            renderAll(d);
             setConnection(true);
         }).catch(function (e) {
             if (e.auth) return;
             setConnection(false);
             if (!state.dashboard) {
-                $('#overview-title').textContent = 'Controller unreachable';
-                $('#overview-sub').textContent = e.message + ' — retrying…';
+                $('#overview-title').textContent = t('ov.unreachable');
+                $('#overview-sub').textContent = t('ov.retrying', { error: errorText(e) });
             }
         }).then(function () { loading = null; });
         return loading;
@@ -781,16 +858,17 @@
         VALVES.forEach(function (id) { if (state.timers[id]) { any = true; tickZone(id); } });
         if (any && state.dashboard) {
             var open = state.dashboard.valves.filter(function (v) { return v.open; });
-            var t = open.length && state.timers[open[0].id];
-            if (t) {
+            var timer = open.length && state.timers[open[0].id];
+            if (timer) {
                 var sub = $('#overview-sub').textContent.split(' · ');
-                sub[0] = fmtDuration((t.endAt - Date.now()) / 1000) + ' remaining';
+                sub[0] = remainingText(timer);
                 $('#overview-sub').textContent = sub.join(' · ');
             }
         }
     }
 
     // ------------------------------------------------------------------ login
+    var loginHint = false;
     function showLogin(message) {
         if (state.locked && !message) return;
         state.locked = true;
@@ -802,8 +880,8 @@
         input.value = '';
         setTimeout(function () { input.focus(); }, 50);
         api('/auth/status').then(function (s) {
-            $('#login-hint').textContent = s.configured ? ''
-                : 'No password is set yet. On the Pi run: venv/bin/python3 scripts/set_password.py';
+            loginHint = !s.configured;
+            $('#login-hint').textContent = loginHint ? t('login.notSet') : '';
         }).catch(function () {});
     }
 
@@ -827,7 +905,7 @@
                     return loadDashboard();
                 })
                 .catch(function (err) {
-                    $('#login-error').textContent = err.message;
+                    $('#login-error').textContent = errorText(err);
                     $('#login-password').select();
                 });
         });
@@ -839,10 +917,26 @@
         showLogin();
     });
 
+    // ------------------------------------------------------------------ language
+    function applyLanguage() {
+        I18N.apply(document);
+        // the button shows the language you switch TO
+        $('#lang-label').textContent = I18N.getLang() === 'ro' ? 'EN' : 'RO';
+        Object.keys(state.zones).forEach(function (id) { translateZone(state.zones[id]); });
+        if (connState !== null) setConnection(connState);
+        if (state.locked) $('#login-hint').textContent = loginHint ? t('login.notSet') : '';
+        if (state.dashboard) renderAll(state.dashboard);
+    }
+
+    $('#lang-toggle').addEventListener('click', function () {
+        I18N.setLang(I18N.getLang() === 'ro' ? 'en' : 'ro');
+        applyLanguage();
+    });
+
     // ------------------------------------------------------------------ theme
     function currentTheme() {
-        var t = document.documentElement.getAttribute('data-theme');
-        if (t) return t;
+        var th = document.documentElement.getAttribute('data-theme');
+        if (th) return th;
         return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
     $('#theme-toggle').addEventListener('click', function () {
@@ -856,6 +950,7 @@
         if (!document.hidden && !state.locked) loadDashboard();
     });
     VALVES.forEach(createZone);
+    applyLanguage();
     if (getToken()) loadDashboard(); else showLogin();
     setInterval(pollStatus, STATUS_POLL_MS);
     setInterval(tickAll, 1000);

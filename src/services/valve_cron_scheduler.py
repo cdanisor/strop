@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Optional
 
 from src.services.cron_utils import build_trigger, next_run_times, CronValidationError
-from src.services.watering_adjustment import WateringAdjuster
+from src.services.watering_adjustment import WateringAdjuster, encode_note
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class ValveCronScheduler:
             meta = {
                 'base_duration': base_duration,
                 'adjust_percent': plan['percent'],
-                'adjust_note': plan['reason'],
+                'adjust_note': encode_note(plan),
             }
 
             if self.main_service.get_valve_status(valve_id):
@@ -186,6 +186,11 @@ class ValveCronScheduler:
             elif plan['skip']:
                 logger.info("Valve %s: scheduled run skipped (%s)", valve_id, plan['reason'])
                 self.db.insert_valve_log(valve_id, 'Skipped', 0, now, meta)
+                notifier = getattr(self.main_service, 'notifier', None)
+                if notifier is not None:
+                    notifier.emit('run_skipped', valve_id=valve_id, base_duration=base_duration,
+                                  reason_key=plan.get('reason_key'), reason_args=plan.get('reason_args'),
+                                  reason=plan.get('reason'))
             else:
                 logger.info("Running scheduled activation for valve %s: %ss of %ss (%s%%, %s)",
                             valve_id, plan['duration'], base_duration, plan['percent'], plan['reason'])

@@ -25,7 +25,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 logger = logging.getLogger(__name__)
 
 TOKEN_SALT = 'strop-auth'
-DEFAULT_TOKEN_DAYS = 30
+DEFAULT_TOKEN_DAYS = 90
 MIN_PASSWORD_LENGTH = 8
 MAX_FAILURES = 5           # per client within the window
 MAX_GLOBAL_FAILURES = 30   # all clients within the window
@@ -99,10 +99,56 @@ class AuthService:
         self._reload()
         return self._serializer.dumps({'v': self.token_version})
 
+    # ------------------------------------------------------------------ integration tokens
+    # Long-lived tokens for integrations (Home Assistant). They do not expire,
+    # survive password changes and are stored only as SHA-256 hashes; revoke
+    # them by name.
+    INTEGRATION_PREFIX = 'strop_it_'
+
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        import hashlib
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def create_integration_token(self, name: str) -> str:
+        name = (name or '').strip()[:64]
+        if not name:
+            raise ValueError('A name is required')
+        self._reload()
+        token = self.INTEGRATION_PREFIX + secrets.token_urlsafe(32)
+        tokens = [t for t in (self.config_service.get('auth.integration_tokens', []) or []) if t.get('name') != name]
+        tokens.append({'name': name, 'sha256': self._hash_token(token), 'created': int(time.time())})
+        self.config_service.update('auth.integration_tokens', tokens)
+        self._reload(force=True)
+        return token
+
+    def revoke_integration_token(self, name: str) -> bool:
+        self._reload()
+        tokens = self.config_service.get('auth.integration_tokens', []) or []
+        kept = [t for t in tokens if t.get('name') != name]
+        if len(kept) == len(tokens):
+            return False
+        self.config_service.update('auth.integration_tokens', kept)
+        self._reload(force=True)
+        return True
+
+    def list_integration_tokens(self) -> list:
+        self._reload()
+        return [{'name': t.get('name'), 'created': t.get('created')}
+                for t in (self.config_service.get('auth.integration_tokens', []) or [])]
+
+    def _verify_integration_token(self, token: str) -> bool:
+        import hmac
+        digest = self._hash_token(token)
+        return any(hmac.compare_digest(digest, t.get('sha256', ''))
+                   for t in (self.config_service.get('auth.integration_tokens', []) or []))
+
     def verify_token(self, token: Optional[str]) -> bool:
         if not token:
             return False
         self._reload()
+        if token.startswith(self.INTEGRATION_PREFIX):
+            return self._verify_integration_token(token)
         if not self.password_hash:
             return False
         try:

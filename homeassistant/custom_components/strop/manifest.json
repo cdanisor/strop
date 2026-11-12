@@ -1,0 +1,12 @@
+{
+  "domain": "strop",
+  "name": "Strop Irrigation",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["webhook"],
+  "documentation": "https://github.com/cdanisor/strop",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "1.0.0"
+}

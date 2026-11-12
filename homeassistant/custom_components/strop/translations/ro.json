@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Controller de irigații Strop",
+        "description": "Conectare la controllerul Strop. Parola e folosită o singură dată, pentru a crea un token dedicat Home Assistant; nu este salvată.",
+        "data": {
+          "url": "URL-ul API Strop",
+          "password": "Parola Strop",
+          "ha_url": "URL-ul Home Assistant accesibil din controllerul Strop"
+        },
+        "data_description": {
+          "url": "De exemplu http://192.168.10.17:5000",
+          "ha_url": "Strop trimite evenimentele (pentru notificări) la această adresă, de exemplu http://192.168.10.14:8209"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reautentificare Strop",
+        "description": "Token-ul Home Assistant a fost respins. Introdu parola Strop pentru a crea unul nou.",
+        "data": { "password": "Parola Strop" }
+      }
+    },
+    "error": {
+      "invalid_auth": "Parolă greșită",
+      "cannot_connect": "Controllerul Strop nu poate fi contactat",
+      "unknown": "Eroare neașteptată"
+    },
+    "abort": {
+      "already_configured": "Acest controller Strop e deja configurat",
+      "reauth_successful": "Reautentificare reușită"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Notificări Strop",
+        "data": {
+          "notify_service": "Serviciu de notificare",
+          "notify_events": "Notifică-mă despre",
+          "language": "Limba notificărilor"
+        },
+        "data_description": {
+          "notify_service": "De exemplu notify.mobile_app_telefonul_tau. Lasă gol pentru fără notificări (evenimentele sunt trimise oricum ca strop_event)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "notify_events": {
+      "options": {
+        "run_started": "Udare pornită",
+        "run_finished": "Udare terminată",
+        "run_skipped": "Udare programată sărită (vreme)",
+        "watchdog": "Supapă închisă forțat de watchdog",
+        "weather_stale": "Datele meteo nu se actualizează",
+        "controller_started": "Controller pornit / repornit"
+      }
+    },
+    "language": {
+      "options": { "ro": "Română", "en": "Engleză" }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "watering": { "name": "Zona {zone} udă" }
+    },
+    "number": {
+      "manual_duration": { "name": "Zona {zone} durată manuală" }
+    },
+    "sensor": {
+      "remaining": { "name": "Zona {zone} timp rămas" },
+      "next_run": { "name": "Zona {zone} următoarea udare" },
+      "next_duration": { "name": "Zona {zone} durata următoarei udări" },
+      "adjustment": { "name": "Ajustare după vreme" },
+      "watered_today": { "name": "Udat azi" },
+      "weather_updated": { "name": "Prognoză actualizată" }
+    },
+    "switch": {
+      "valve": { "name": "Zona {zone}" },
+      "schedule": { "name": "Zona {zone} program" }
+    }
+  }
+}
