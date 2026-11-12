@@ -81,7 +81,8 @@ class GPIOControlService:
             return MAX_DURATION_SECONDS
         return duration
 
-    def activate_valve(self, valve_id: int, duration: Optional[int] = None) -> bool:
+    def activate_valve(self, valve_id: int, duration: Optional[int] = None,
+                       meta: Optional[Dict[str, Any]] = None) -> bool:
         """
         Open a valve; it is always closed again automatically after `duration`
         seconds (capped at MAX_DURATION_SECONDS).
@@ -107,7 +108,7 @@ class GPIOControlService:
             self.valve_states[valve_id] = True
             start_time = datetime.datetime.now()
             self.valve_start_times[valve_id] = start_time
-            self.open_log_ids[valve_id] = self.db.insert_valve_log(valve_id, 'Opened', None, start_time)
+            self.open_log_ids[valve_id] = self.db.insert_valve_log(valve_id, 'Opened', None, start_time, meta)
 
             timer = threading.Timer(duration, self._on_timer, [valve_id])
             timer.daemon = True

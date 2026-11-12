@@ -566,23 +566,45 @@ class APIService:
                 from src.database import Database
                 from src.main_service import main_service
                 from datetime import datetime, timedelta
+                from src.services.watering_adjustment import WateringAdjuster, settings as adjustment_settings
                 db = Database()
                 now = datetime.now()
                 today = now.date()
+                adjuster = WateringAdjuster(db, main_service.config_service.get('watering_adjustment', {}) or {})
+                weather_by_date = {w['date']: w for w in db.get_all_daily_weather_data()}
 
                 valves = []
                 for valve_id in (1, 2):
                     details = main_service.get_valve_details(valve_id)
                     cron = db.get_valve_cron(valve_id) or {}
                     next_runs = []
+                    planned = []
+                    base_duration = cron.get('duration') or 60
                     if cron.get('enabled') and cron.get('cron_expression'):
                         try:
-                            next_runs = [r.isoformat() for r in next_run_times(cron['cron_expression'], 5)]
+                            runs = next_run_times(cron['cron_expression'], 5)
                         except CronValidationError as e:
                             logger.error(f"Invalid cron for valve {valve_id}: {e}")
+                            runs = []
+                        next_runs = [r.isoformat() for r in runs]
+                        # Expected weather adjustment of each upcoming run
+                        for r in runs:
+                            plan = adjuster.plan(base_duration, r.date(), weather_by_date)
+                            if r.date().isoformat() not in weather_by_date:
+                                plan['reason'] = 'Forecast not available yet, adjusted at run time'
+                            planned.append({
+                                'at': r.isoformat(),
+                                'base_duration': base_duration,
+                                'duration': plan['duration'],
+                                'percent': plan['percent'],
+                                'skip': plan['skip'],
+                                'reason': plan['reason'],
+                                'has_forecast': r.date().isoformat() in weather_by_date,
+                            })
                     history = [
                         {'status': log['status'], 'start_time': log['start_time'] or log['timestamp'],
-                         'duration': log['duration']}
+                         'duration': log['duration'], 'base_duration': log.get('base_duration'),
+                         'adjust_percent': log.get('adjust_percent'), 'adjust_note': log.get('adjust_note')}
                         for log in db.get_valve_logs(valve_id=valve_id, limit=5)
                     ]
                     valves.append({
@@ -594,6 +616,7 @@ class APIService:
                             'duration': cron.get('duration'),
                             'last_run': cron.get('last_run'),
                             'next_runs': next_runs,
+                            'planned': planned,
                         },
                         'history': history,
                     })
@@ -617,9 +640,18 @@ class APIService:
                            if (datetime.strptime(w['date'], '%Y-%m-%d').date() - today).days <= 5]
                 weather_updated = max((w['timestamp'] for w in weather if w['timestamp']), default=None)
 
+                # Breakdown for the next scheduled run day (or today)
+                upcoming = sorted(p['at'] for v in valves for p in v['schedule']['planned'])
+                focus_day = datetime.fromisoformat(upcoming[0]).date() if upcoming else today
+                adjustment = adjuster.for_date(focus_day, weather_by_date)
+                adjustment['settings'] = {
+                    k: v for k, v in adjustment_settings(adjuster.config).items() if k != 'rain_weights'
+                }
+
                 return jsonify({
                     'server_time': now.isoformat(),
                     'valves': valves,
+                    'adjustment': adjustment,
                     'usage': usage,
                     'weather': weather,
                     'weather_updated': weather_updated,

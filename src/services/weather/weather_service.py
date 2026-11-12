@@ -76,6 +76,17 @@ class WeatherService:
             bool: True if storage was successful, False otherwise
         """
         try:
+            # Keep every 3-hour slot, then rebuild each touched day from *all* its
+            # stored slots (past slots of today come from earlier updates)
+            items = forecast_data.get('list', []) or []
+            if items:
+                self.db.upsert_weather_slots(items)
+                dates = sorted({datetime.fromtimestamp(i['dt']).date() for i in items if i.get('dt')})
+                start = datetime.combine(dates[0], datetime.min.time())
+                end = datetime.combine(dates[-1], datetime.min.time()) + timedelta(days=1)
+                forecast_data = dict(forecast_data)
+                forecast_data['list'] = self.db.get_weather_slots(int(start.timestamp()), int(end.timestamp()))
+
             # Process the forecast data to extract relevant information
             daily_forecast_data = self._process_forecast_data(forecast_data)
         

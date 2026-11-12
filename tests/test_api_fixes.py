@@ -117,3 +117,21 @@ def test_dashboard_reports_state_schedule_and_remaining(client):
     assert v2['history'][0]['status'] == 'Opened'
     assert set(d['usage']) == {'1', '2'}
     assert 'weather' in d and 'server_time' in d
+
+
+def test_dashboard_shows_set_and_adjusted_duration(client):
+    from datetime import date, timedelta
+    from src.database import Database
+    db = Database()
+    for o in range(-2, 8):
+        d = (date.today() + timedelta(days=o)).isoformat()
+        db.insert_weather_data({'date': d, 'temperature_minimum': 9, 'temperature_maximum': 19,
+                                'average_humidity': 70, 'average_pressure': 1013,
+                                'description': 'clear sky', 'total_rain': 0})
+    client.post('/api/valves/1/cron', json={'cron_expression': '30 7 * * *', 'duration': 600, 'enabled': True})
+    d = client.get('/api/dashboard').get_json()
+    plan = d['valves'][0]['schedule']['planned'][0]
+    assert plan['base_duration'] == 600 and plan['percent'] == 56 and plan['duration'] == 340
+    assert plan['skip'] is False and plan['reason'] == 'cool, humid'
+    assert d['adjustment']['percent'] == 56
+    assert d['adjustment']['terms']['temp'] < 0 and d['adjustment']['settings']['base_temp'] == 22.0

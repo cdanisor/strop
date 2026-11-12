@@ -9,7 +9,7 @@
     <title>Strop · Irrigation</title>
     <link rel="icon" href="favicon.png" type="image/png">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <link rel="stylesheet" href="styles.css?v=4">
+    <link rel="stylesheet" href="styles.css?v=6">
     <script>
         // Apply the saved theme before first paint (no flash)
         try {
@@ -68,6 +68,30 @@
         </section>
 
         <section class="zones" id="zones" aria-label="Zones"></section>
+
+        <section class="panel adjust-panel" id="adjust-panel" aria-labelledby="adjust-title">
+            <div class="panel-head">
+                <h2 id="adjust-title">Weather adjustment</h2>
+                <p class="panel-note" id="adjust-note"></p>
+            </div>
+            <div class="adjust-grid">
+                <div class="adjust-result">
+                    <span class="adjust-big" id="adjust-big">–</span>
+                    <span class="adjust-of">of programmed time</span>
+                    <span class="adjust-verdict" id="adjust-verdict"></span>
+                </div>
+                <div class="factors" id="factors"></div>
+            </div>
+            <details class="method">
+                <summary>How is this calculated?</summary>
+                <p>Based on the Zimmerman method (OpenSprinkler): the programmed time is right for a typical summer day
+                    (<span id="m-base"></span>). Each degree colder removes <span id="m-temp"></span>, each % of humidity
+                    above the baseline removes <span id="m-hum"></span>, and each mm of rain removes <span id="m-rain"></span>.
+                    Rain counts from the two previous days, the run day and the next two days (forecasts count less).
+                    The time is never increased. Runs are skipped on frost risk, when it is too cold for grass to grow,
+                    or when less than <span id="m-min"></span> of the time would remain.</p>
+            </details>
+        </section>
 
         <section class="panel" aria-labelledby="weather-title">
             <div class="panel-head">
@@ -150,6 +174,23 @@
                     </div>
                 </div>
 
+                <div class="adjust" hidden>
+                    <div class="adjust-values">
+                        <div class="adjust-cell">
+                            <span class="adjust-label">Set</span>
+                            <span class="adjust-set"></span>
+                        </div>
+                        <span class="adjust-arrow" aria-hidden="true">→</span>
+                        <div class="adjust-cell">
+                            <span class="adjust-label adjust-when">Next run</span>
+                            <span class="adjust-final"></span>
+                        </div>
+                        <span class="adjust-pct"></span>
+                    </div>
+                    <div class="meter" aria-hidden="true"><span class="meter-fill"></span></div>
+                    <p class="adjust-reason"></p>
+                </div>
+
                 <form class="editor" hidden>
                     <fieldset class="editor-days">
                         <legend class="ctl-label">Days</legend>
@@ -191,6 +232,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>

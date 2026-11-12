@@ -20,6 +20,7 @@
     --z1-soft: #dff1ee;
     --z2-soft: #ebe8fa;
     --warn: #b7791f;
+    --warn-soft: #fbf1e1;
     --danger: #c43d36;
     --danger-soft: #fbeceb;
     --cloud: #b8c4c9;
@@ -49,6 +50,7 @@
         --z1-soft: #173a36;
         --z2-soft: #28243f;
         --warn: #e0a84a;
+    --warn-soft: #3a2e17;
         --danger: #ef6b62;
         --danger-soft: #3a1d1b;
         --cloud: #6d7c82;
@@ -76,6 +78,7 @@
     --z1-soft: #173a36;
     --z2-soft: #28243f;
     --warn: #e0a84a;
+    --warn-soft: #3a2e17;
     --danger: #ef6b62;
     --danger-soft: #3a1d1b;
     --cloud: #6d7c82;
@@ -453,6 +456,81 @@ svg { display: block; }
 .sw-z2 { background: var(--z2); }
 .sw-plan { border: 1px dashed var(--faint); }
 
+/* ------------------------------------------------------------------ weather adjustment (zone) */
+.adjust {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    display: grid;
+    gap: 8px;
+}
+.adjust-values { display: flex; align-items: center; gap: 12px; }
+.adjust-cell { display: grid; gap: 1px; min-width: 0; }
+.adjust-label { font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .02em; white-space: nowrap; }
+.adjust-set { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.adjust.reduced .adjust-set, .adjust.skip .adjust-set { text-decoration: line-through; text-decoration-color: var(--faint); }
+.adjust-final { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.adjust.reduced .adjust-final { color: var(--water); }
+.adjust.skip .adjust-final { color: var(--warn); }
+.adjust-arrow { color: var(--faint); font-size: 18px; }
+.adjust-pct {
+    margin-left: auto;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+.adjust.reduced .adjust-pct { background: var(--water-soft); color: var(--water); }
+.adjust.skip .adjust-pct { background: var(--warn-soft); color: var(--warn); }
+.meter { height: 6px; border-radius: 999px; background: var(--ring-track); overflow: hidden; }
+.meter-fill { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width .4s; }
+.adjust.reduced .meter-fill { background: var(--water); }
+.adjust-reason { font-size: 13px; color: var(--muted); }
+.adjust-reason:empty { display: none; }
+
+.h-skipped .h-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--warn); }
+.tag-skip { text-decoration: line-through; color: var(--warn); border-color: var(--warn); }
+
+/* ------------------------------------------------------------------ weather adjustment (panel) */
+.adjust-grid { display: grid; grid-template-columns: 180px 1fr; gap: 20px; align-items: center; }
+.adjust-result {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 2px;
+    padding: 14px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--water-soft);
+}
+.adjust-big { font-size: 36px; font-weight: 750; letter-spacing: -.02em; color: var(--water); font-variant-numeric: tabular-nums; }
+.adjust-panel.skip .adjust-result { background: var(--warn-soft); }
+.adjust-panel.skip .adjust-big { color: var(--warn); }
+.adjust-of { font-size: 12px; color: var(--muted); }
+.adjust-verdict { font-size: 13px; font-weight: 600; margin-top: 4px; }
+
+.factors { display: grid; gap: 12px; }
+.factor-head { display: flex; justify-content: space-between; gap: 8px; }
+.factor-name { font-weight: 600; }
+.factor-term { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+.factor-term.neg { color: var(--water); }
+.factor-term.pos { color: var(--accent); }
+.factor-detail { font-size: 13px; color: var(--muted); margin: 1px 0 5px; }
+.factor-base { color: var(--faint); }
+.factor-bar { height: 5px; border-radius: 999px; background: var(--ring-track); overflow: hidden; }
+.factor-bar span { display: block; height: 100%; border-radius: 999px; }
+.factor-bar .neg { background: var(--water); }
+.factor-bar .pos { background: var(--accent); }
+.factor-foot { font-size: 12px; color: var(--muted); }
+
+.method { margin-top: 14px; font-size: 13px; color: var(--muted); }
+.method summary { cursor: pointer; }
+.method p { margin-top: 8px; line-height: 1.55; max-width: 72ch; }
+
 /* ------------------------------------------------------------------ toast */
 .toast {
     position: fixed;
@@ -479,6 +557,7 @@ svg { display: block; }
 }
 
 @media (max-width: 520px) {
+    .adjust-grid { grid-template-columns: 1fr; }
     .topbar { padding: 14px 16px 4px; }
     .page { padding: 10px 16px 40px; gap: 14px; }
     .conn-text { display: none; }

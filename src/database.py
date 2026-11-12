@@ -105,6 +105,25 @@ class Database:
             if cursor.rowcount:
                 logger.info(f"Corrected halved humidity/pressure in {cursor.rowcount} weather rows")
             
+            # Raw 3-hour forecast slots, keyed by their timestamp. Keeping every slot
+            # (the last forecast received before it passed) lets daily totals cover
+            # the whole day instead of only the slots still ahead at the last update.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS weather_slots (
+                    dt INTEGER PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+            ''')
+
+            # Weather-based adjustment details for valve runs (backward compatible)
+            for column, ddl in (('base_duration', 'INTEGER'), ('adjust_percent', 'INTEGER'),
+                                ('adjust_note', 'TEXT')):
+                try:
+                    cursor.execute(f'SELECT {column} FROM valve_logs LIMIT 1')
+                except sqlite3.OperationalError:
+                    cursor.execute(f'ALTER TABLE valve_logs ADD COLUMN {column} {ddl}')
+
             # Create valve_cron table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS valve_cron (
@@ -150,7 +169,9 @@ class Database:
             logger.error(f"Failed to initialize database: {e}")
             raise
     
-    def insert_valve_log(self, valve_id: int, status: str, duration: Optional[int] = None, start_time: Optional[datetime] = None) -> Optional[int]:
+    def insert_valve_log(self, valve_id: int, status: str, duration: Optional[int] = None,
+                         start_time: Optional[datetime] = None,
+                         meta: Optional[Dict[str, Any]] = None) -> Optional[int]:
         """
         Insert a new valve operation log entry.
         
@@ -168,9 +189,12 @@ class Database:
             cursor = conn.cursor()
     
             cursor.execute('''
-                INSERT INTO valve_logs (valve_id, status, timestamp, duration, start_time)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (valve_id, status, datetime.now(), duration, start_time))
+                INSERT INTO valve_logs (valve_id, status, timestamp, duration, start_time,
+                                        base_duration, adjust_percent, adjust_note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (valve_id, status, datetime.now(), duration, start_time,
+                  (meta or {}).get('base_duration'), (meta or {}).get('adjust_percent'),
+                  (meta or {}).get('adjust_note')))
             log_id = cursor.lastrowid
     
             conn.commit()
@@ -254,7 +278,10 @@ class Database:
                     'status': row['status'],
                     'timestamp': row['timestamp'],
                     'duration': row['duration'],
-                    'start_time': row['start_time'] if 'start_time' in row.keys() else None
+                    'start_time': row['start_time'] if 'start_time' in row.keys() else None,
+                    'base_duration': row['base_duration'] if 'base_duration' in row.keys() else None,
+                    'adjust_percent': row['adjust_percent'] if 'adjust_percent' in row.keys() else None,
+                    'adjust_note': row['adjust_note'] if 'adjust_note' in row.keys() else None,
                 })
             
             return logs
@@ -335,6 +362,33 @@ class Database:
             logger.error(f"Failed to insert weather data: {e}")
             return False
     
+    def upsert_weather_slots(self, items: List[Dict[str, Any]]) -> None:
+        """Store raw 3-hour forecast items (newer data replaces older for the same slot)."""
+        import json
+        now = datetime.now()
+        conn = self.get_connection()
+        try:
+            conn.executemany(
+                'INSERT OR REPLACE INTO weather_slots (dt, data, updated_at) VALUES (?, ?, ?)',
+                [(int(item['dt']), json.dumps(item), now) for item in items if item.get('dt')])
+            # Keep 60 days of slots
+            cutoff = int(now.timestamp()) - 60 * 86400
+            conn.execute('DELETE FROM weather_slots WHERE dt < ?', (cutoff,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_weather_slots(self, start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
+        """Raw forecast items with start_ts <= dt < end_ts, ordered by time."""
+        import json
+        conn = self.get_connection()
+        try:
+            rows = conn.execute('SELECT data FROM weather_slots WHERE dt >= ? AND dt < ? ORDER BY dt',
+                                (start_ts, end_ts)).fetchall()
+        finally:
+            conn.close()
+        return [json.loads(r['data']) for r in rows]
+
     def get_latest_weather_data(self) -> Optional[Dict[str, Any]]:
         """
         Retrieve the most recent weather data entry.

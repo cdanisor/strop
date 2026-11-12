@@ -234,7 +234,14 @@
             edCron: $('.ed-cron', node),
             edAdvanced: $('.advanced', node),
             edError: $('.editor-error', node),
-            history: $('.history', node)
+            history: $('.history', node),
+            adjust: $('.adjust', node),
+            adjSet: $('.adjust-set', node),
+            adjFinal: $('.adjust-final', node),
+            adjWhen: $('.adjust-when', node),
+            adjPct: $('.adjust-pct', node),
+            adjFill: $('.meter-fill', node),
+            adjReason: $('.adjust-reason', node)
         };
 
         WEEK.forEach(function (w) {
@@ -291,10 +298,16 @@
         z.root.classList.toggle('is-open', !!v.open);
         z.pill.textContent = v.open ? 'Watering' : 'Idle';
 
-        // next run line
-        var next = schedule.enabled && schedule.next_runs && schedule.next_runs.length ? parseDate(schedule.next_runs[0]) : null;
-        z.next.textContent = next ? 'Next: ' + relativeDay(next) + ' at ' + hhmm(next)
-            : (schedule.cron_expression ? 'Schedule off' : 'No schedule');
+        // next run line (with the weather-adjusted duration)
+        var plan = schedule.enabled && schedule.planned && schedule.planned.length ? schedule.planned[0] : null;
+        var next = plan ? parseDate(plan.at) : null;
+        if (next) {
+            z.next.textContent = 'Next: ' + relativeDay(next) + ' at ' + hhmm(next) + ' · ' +
+                (plan.skip ? 'skipped' : fmtDuration(plan.duration));
+        } else {
+            z.next.textContent = schedule.cron_expression ? 'Schedule off' : 'No schedule';
+        }
+        renderAdjust(z, schedule, plan, next);
 
         // countdown state
         if (v.open && v.remaining != null) {
@@ -315,6 +328,19 @@
         z.root.dataset.duration = schedule.duration || '';
 
         renderHistory(z, v.history || []);
+    }
+
+    function renderAdjust(z, schedule, plan, next) {
+        if (!plan) { z.adjust.hidden = true; return; }
+        z.adjust.hidden = false;
+        z.adjust.classList.toggle('skip', !!plan.skip);
+        z.adjust.classList.toggle('reduced', !plan.skip && plan.percent < 100);
+        z.adjSet.textContent = fmtDuration(plan.base_duration);
+        z.adjWhen.textContent = 'Adjusted · ' + relativeDay(next);
+        z.adjFinal.textContent = plan.skip ? 'Skipped' : fmtDuration(plan.duration);
+        z.adjPct.textContent = plan.percent + '%';
+        z.adjFill.style.width = Math.max(0, Math.min(100, plan.percent)) + '%';
+        z.adjReason.textContent = plan.reason || '';
     }
 
     function tickZone(id) {
@@ -350,13 +376,25 @@
             'Finished': ['h-finished', 'Completed'],
             'Manually Stopped': ['h-stopped', 'Stopped'],
             'Terminated': ['h-terminated', 'Interrupted'],
-            'Opened': ['h-open', 'Running']
+            'Opened': ['h-open', 'Running'],
+            'Skipped': ['h-skipped', 'Skipped']
         };
         z.history.innerHTML = history.slice(0, 4).map(function (h) {
             var m = map[h.status] || ['', h.status];
             var d = parseDate(h.start_time);
             var when = d ? relativeDay(d) + ', ' + hhmm(d) : '—';
-            var what = h.status === 'Opened' ? m[1] : m[1] + (h.duration != null ? ' · ' + fmtDuration(h.duration) : '');
+            var what;
+            if (h.status === 'Skipped') {
+                what = m[1] + (h.adjust_note ? ' · ' + h.adjust_note : '');
+            } else if (h.status === 'Opened') {
+                what = m[1] + (h.base_duration && h.adjust_percent != null && h.adjust_percent < 100
+                    ? ' · ' + h.adjust_percent + '% of ' + fmtDuration(h.base_duration) : '');
+            } else {
+                what = m[1] + (h.duration != null ? ' · ' + fmtDuration(h.duration) : '');
+                if (h.base_duration && h.adjust_percent != null && h.adjust_percent < 100) {
+                    what += ' of ' + fmtDuration(h.base_duration);
+                }
+            }
             return '<li class="' + m[0] + '"><span class="h-dot"></span><span class="h-when">' + escapeHtml(when) +
                 '</span><span class="h-what">' + escapeHtml(what) + '</span></li>';
         }).join('');
@@ -510,17 +548,35 @@
             var t = state.timers[open[0].id];
             sub = t ? fmtDuration((t.endAt - Date.now()) / 1000) + ' remaining' : '';
         } else {
+            // all upcoming runs of all zones, in time order
             var upcoming = [];
             d.valves.forEach(function (v) {
-                if (v.schedule.enabled && v.schedule.next_runs.length) {
-                    upcoming.push({ id: v.id, at: parseDate(v.schedule.next_runs[0]) });
-                }
+                if (!v.schedule.enabled) return;
+                (v.schedule.planned || []).forEach(function (p) {
+                    upcoming.push({ id: v.id, at: parseDate(p.at), plan: p });
+                });
             });
             upcoming.sort(function (a, b) { return a.at - b.at; });
-            if (upcoming.length) {
-                var u = upcoming[0];
+            var firstRun = upcoming.filter(function (u) { return !u.plan.skip; })[0];
+            var skippedBefore = upcoming.filter(function (u) { return u.plan.skip && (!firstRun || u.at < firstRun.at); });
+            var skipNote = '';
+            if (skippedBefore.length) {
+                var reasons = [];
+                skippedBefore.forEach(function (u) {
+                    var r = u.plan.reason.replace(/^Not needed: /, '').replace(/ \(.*\)$/, '').toLowerCase();
+                    if (reasons.indexOf(r) === -1) reasons.push(r);
+                });
+                skipNote = skippedBefore.length + ' run' + (skippedBefore.length > 1 ? 's' : '') + ' skipped before (' + reasons.join(', ') + ')';
+            }
+            if (firstRun) {
+                var u = firstRun;
                 title = 'Next watering ' + phraseDay(u.at) + ' at ' + hhmm(u.at);
-                sub = 'Zone ' + u.id + (upcoming.length > 1 ? ', then Zone ' + upcoming[1].id + ' ' + phraseDay(upcoming[1].at) + ' at ' + hhmm(upcoming[1].at) : '');
+                sub = 'Zone ' + u.id + ' · ' + fmtDuration(u.plan.duration) +
+                    (u.plan.percent < 100 ? ' of ' + fmtDuration(u.plan.base_duration) + ' (' + u.plan.percent + '%)' : '') +
+                    (skipNote ? ' · ' + skipNote : '');
+            } else if (upcoming.length) {
+                title = 'No watering needed in the coming days';
+                sub = skipNote;
             } else {
                 title = 'All schedules are off';
                 sub = 'Nothing will water automatically';
@@ -567,11 +623,11 @@
         var planned = {};
         d.valves.forEach(function (v) {
             if (!v.schedule.enabled) return;
-            v.schedule.next_runs.forEach(function (r) {
-                var at = parseDate(r);
+            (v.schedule.planned || []).forEach(function (p) {
+                var at = parseDate(p.at);
                 if (!at) return;
                 var k = localDateKey(at);
-                (planned[k] = planned[k] || []).push({ id: v.id, at: at });
+                (planned[k] = planned[k] || []).push({ id: v.id, at: at, plan: p });
             });
         });
 
@@ -603,7 +659,10 @@
             });
             (planned[key] || []).forEach(function (p) {
                 if (i < 0 || p.at < new Date()) return;
-                html += '<span class="tag tag-plan">Z' + p.id + ' ' + hhmm(p.at) + '</span>';
+                var label = p.plan.skip ? 'skip' : minutesShort(p.plan.duration);
+                html += '<span class="tag tag-plan' + (p.plan.skip ? ' tag-skip' : '') + '" title="' +
+                    escapeHtml(fmtDuration(p.plan.base_duration) + ' set · ' + p.plan.percent + '% · ' + p.plan.reason) + '">Z' +
+                    p.id + ' ' + hhmm(p.at) + ' · ' + label + '</span>';
             });
             html += '</div></div>';
         }
@@ -623,6 +682,45 @@
         }
     }
 
+    // ------------------------------------------------------------------ adjustment panel
+    function signed(v) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(Math.round(v)) + '%'; }
+
+    function renderAdjustPanel(d) {
+        var a = d.adjustment;
+        if (!a) return;
+        var s = a.settings || {};
+        var runDay = parseDate(a.date + 'T12:00:00');
+        var hasRun = d.valves.some(function (v) { return v.schedule.enabled && v.schedule.planned && v.schedule.planned.length; });
+        $('#adjust-note').textContent = (hasRun ? 'For the next run, ' : 'If watering ') + phraseDay(runDay) +
+            (a.enabled ? '' : ' · adjustment disabled');
+
+        $('#adjust-big').textContent = a.skip ? 'Skip' : a.percent + '%';
+        $('.adjust-of').textContent = a.skip ? 'run skipped' : 'of programmed time';
+        $('#adjust-panel').classList.toggle('skip', !!a.skip);
+        $('#adjust-verdict').textContent = a.reason || '';
+
+        var inp = a.inputs || {}, t = a.terms || {};
+        function row(name, value, base, term) {
+            var w = Math.min(100, Math.abs(term));
+            return '<div class="factor"><div class="factor-head"><span class="factor-name">' + name +
+                '</span><span class="factor-term ' + (term < 0 ? 'neg' : term > 0 ? 'pos' : '') + '">' + signed(term) +
+                '</span></div><div class="factor-detail">' + value + (base ? ' <span class="factor-base">· baseline ' + base + '</span>' : '') +
+                '</div><div class="factor-bar"><span class="' + (term < 0 ? 'neg' : 'pos') + '" style="width:' + w + '%"></span></div></div>';
+        }
+        $('#factors').innerHTML =
+            row('Temperature', inp.temp != null ? inp.temp + '°C average' : 'no data', s.base_temp + '°C', t.temp || 0) +
+            row('Humidity', inp.humidity != null ? inp.humidity + '% average' : 'no data', s.base_humidity + '%', t.humidity || 0) +
+            row('Rain', (inp.rain || 0) + ' mm weighted (2 days before → 2 days after)', '', t.rain || 0) +
+            (inp.min_temp != null ? '<p class="factor-foot">Minimum that day ' + inp.min_temp + '°C · frost skip at ≤ ' +
+                s.freeze_temp + '°C · cold skip below ' + s.cold_temp + '°C average</p>' : '');
+
+        $('#m-base').textContent = s.base_temp + '°C average, ' + s.base_humidity + '% humidity, no rain';
+        $('#m-temp').textContent = s.temp_pct_per_c + '%';
+        $('#m-hum').textContent = s.humidity_pct_per_pct + '%';
+        $('#m-rain').textContent = s.rain_pct_per_mm + '%';
+        $('#m-min').textContent = s.min_percent + '%';
+    }
+
     // ------------------------------------------------------------------ loading
     var loading = null;
     function loadDashboard() {
@@ -633,6 +731,7 @@
             state.statusKey = d.valves.map(function (v) { return v.id + ':' + !!v.open; }).join(',');
             d.valves.forEach(renderZone);
             renderOverview(d);
+            renderAdjustPanel(d);
             renderDays(d);
             setConnection(true);
         }).catch(function (e) {

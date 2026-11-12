@@ -126,3 +126,36 @@ When a request is received:
     "debug_mode": false
   }
 }
+## Weather-based watering adjustment
+
+Scheduled runs are shortened (never lengthened) or skipped based on
+temperature, humidity and rain (past two days, the run day and the next two
+days). The method is an adaptation of the Zimmerman method used by
+OpenSprinkler; see `src/services/watering_adjustment.py` for the formula.
+Manual runs are never adjusted.
+
+All keys are optional; the defaults are shown:
+
+```json
+"watering_adjustment": {
+    "enabled": true,
+    "base_temp": 22.0,
+    "base_humidity": 55.0,
+    "temp_pct_per_c": 3.6,
+    "humidity_pct_per_pct": 1.0,
+    "rain_pct_per_mm": 7.87,
+    "rain_weights": {"-2": 0.5, "-1": 1.0, "0": 1.0, "1": 0.5, "2": 0.25},
+    "freeze_temp": 2.0,
+    "cold_temp": 8.0,
+    "min_percent": 20.0,
+    "min_run_seconds": 60
+}
+```
+
+- `base_temp` / `base_humidity`: the day for which the programmed time is right
+  (100 %). Raise `base_temp` if the lawn gets too little water in spring.
+- `rain_pct_per_mm`: 7.87 % per mm means about 12.7 mm (half an inch) of
+  effective rain cancels a run.
+- Runs are skipped when the run day's minimum is at or below `freeze_temp`,
+  when the mean temperature is below `cold_temp`, or when less than
+  `min_percent` / `min_run_seconds` would remain.

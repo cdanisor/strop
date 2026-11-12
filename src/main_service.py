@@ -76,7 +76,7 @@ class MainService:
             print(f"Failed to initialize main service: {e}")
             return False
     
-    def activate_valve(self, valve_id: int, duration: int = None) -> bool:
+    def activate_valve(self, valve_id: int, duration: int = None, meta: Dict[str, Any] = None) -> bool:
         """
         Activate specified valve.
         
@@ -91,7 +91,7 @@ class MainService:
             print("Main service not initialized")
             return False
    		
-        return self.gpio_service.activate_valve(valve_id, duration)
+        return self.gpio_service.activate_valve(valve_id, duration, meta)
     
     def deactivate_valve(self, valve_id: int, manual: bool = False) -> bool:
         """

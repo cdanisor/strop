@@ -45,9 +45,9 @@ class FakeMain:
         self.gpio = gpio
         self.calls = []
 
-    def activate_valve(self, valve_id, duration=None):
+    def activate_valve(self, valve_id, duration=None, meta=None):
         self.calls.append((valve_id, duration))
-        return self.gpio.activate_valve(valve_id, duration)
+        return self.gpio.activate_valve(valve_id, duration, meta)
 
     def get_valve_status(self, valve_id):
         return self.gpio.get_valve_status(valve_id)

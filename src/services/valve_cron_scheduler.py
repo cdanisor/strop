@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Optional
 
 from src.services.cron_utils import build_trigger, next_run_times, CronValidationError
+from src.services.watering_adjustment import WateringAdjuster
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,12 @@ class ValveCronScheduler:
         self.main_service = None
         self._lock = threading.RLock()
 
+    def _adjustment_config(self):
+        config_service = getattr(self.main_service, 'config_service', None)
+        if config_service is None:
+            return {}
+        return config_service.get('watering_adjustment', {}) or {}
+
     @staticmethod
     def _job_id(valve_id: int) -> str:
         return f"valve_{valve_id}_cron"
@@ -51,6 +58,7 @@ class ValveCronScheduler:
                 return
             self.db = db
             self.main_service = main_service
+            self.adjuster = WateringAdjuster(db, self._adjustment_config())
             self.scheduler.start()
             self.is_running = True
             self.reload_all()
@@ -161,14 +169,27 @@ class ValveCronScheduler:
                 self._update_next_run(valve_id, None)
                 return
 
-            duration = cron.get('duration') or DEFAULT_DURATION
-            last_run = datetime.now().isoformat()
+            base_duration = cron.get('duration') or DEFAULT_DURATION
+            now = datetime.now()
+            last_run = now.isoformat()
+
+            # Weather-based reduction of the programmed time
+            plan = self.adjuster.plan(base_duration, now.date())
+            meta = {
+                'base_duration': base_duration,
+                'adjust_percent': plan['percent'],
+                'adjust_note': plan['reason'],
+            }
 
             if self.main_service.get_valve_status(valve_id):
                 logger.warning("Valve %s already open, skipping scheduled activation", valve_id)
+            elif plan['skip']:
+                logger.info("Valve %s: scheduled run skipped (%s)", valve_id, plan['reason'])
+                self.db.insert_valve_log(valve_id, 'Skipped', 0, now, meta)
             else:
-                logger.info("Running scheduled activation for valve %s for %s seconds", valve_id, duration)
-                if not self.main_service.activate_valve(valve_id, duration):
+                logger.info("Running scheduled activation for valve %s: %ss of %ss (%s%%, %s)",
+                            valve_id, plan['duration'], base_duration, plan['percent'], plan['reason'])
+                if not self.main_service.activate_valve(valve_id, plan['duration'], meta):
                     logger.error("Failed to activate valve %s", valve_id)
 
             self._update_cron_run_dates(valve_id, last_run, self._calculate_next_run_date(valve_id))
