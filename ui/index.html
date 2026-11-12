@@ -2,155 +2,195 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Valve Control System</title>
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f3f6f5" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0e1413" media="(prefers-color-scheme: dark)">
+    <title>Strop · Irrigation</title>
     <link rel="icon" href="favicon.png" type="image/png">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="styles.css?v=4">
+    <script>
+        // Apply the saved theme before first paint (no flash)
+        try {
+            var t = localStorage.getItem('strop-theme');
+            if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+    </script>
 </head>
 <body>
-    <div class="container-fluid mt-3 mt-md-4">
-        <div class="d-flex justify-content-end mb-3">
-            <button id="dark-mode-toggle" class="btn btn-outline-secondary">
-                <span class="dark-mode-icon">🌙</span>
-                <span class="light-mode-icon">☀️</span>
+    <!-- Icon sprite: tiny inline SVGs, no icon font or CDN -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.7s-6.5 7.3-6.5 12a6.5 6.5 0 0 0 13 0c0-4.7-6.5-12-6.5-12z" fill="currentColor"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="currentColor"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></g></symbol>
+        <symbol id="w-clear" viewBox="0 0 32 32"><circle cx="16" cy="16" r="6.5" fill="#f2b632"/><g stroke="#f2b632" stroke-width="2.2" stroke-linecap="round"><path d="M16 3v3M16 26v3M3 16h3M26 16h3M6.8 6.8l2.1 2.1M23.1 23.1l2.1 2.1M6.8 25.2l2.1-2.1M23.1 8.9l2.1-2.1"/></g></symbol>
+        <symbol id="w-partly" viewBox="0 0 32 32"><circle cx="12" cy="12" r="5.5" fill="#f2b632"/><path d="M11 26h13a5 5 0 0 0 0-10 7 7 0 0 0-13.3 2.2A4 4 0 0 0 11 26z" fill="var(--cloud)"/></symbol>
+        <symbol id="w-cloud" viewBox="0 0 32 32"><path d="M9 25h15a6 6 0 0 0 .5-12 8 8 0 0 0-15.2 2.5A4.8 4.8 0 0 0 9 25z" fill="var(--cloud)"/></symbol>
+        <symbol id="w-rain" viewBox="0 0 32 32"><path d="M9 20h15a5.5 5.5 0 0 0 .5-11 7.5 7.5 0 0 0-14.3 2.4A4.4 4.4 0 0 0 9 20z" fill="var(--cloud)"/><g stroke="#3d8fe0" stroke-width="2.2" stroke-linecap="round"><path d="M11 23.5l-1.2 3M17 23.5l-1.2 3M23 23.5l-1.2 3"/></g></symbol>
+        <symbol id="w-storm" viewBox="0 0 32 32"><path d="M9 19h15a5.5 5.5 0 0 0 .5-11 7.5 7.5 0 0 0-14.3 2.4A4.4 4.4 0 0 0 9 19z" fill="var(--cloud)"/><path d="M17 19l-3.5 5.5h3L15 30l5.5-7.5h-3l1.8-3.5z" fill="#f2b632"/></symbol>
+        <symbol id="w-snow" viewBox="0 0 32 32"><path d="M9 19h15a5.5 5.5 0 0 0 .5-11 7.5 7.5 0 0 0-14.3 2.4A4.4 4.4 0 0 0 9 19z" fill="var(--cloud)"/><g fill="#8fc3f0"><circle cx="11" cy="24" r="1.6"/><circle cx="17" cy="26" r="1.6"/><circle cx="23" cy="24" r="1.6"/></g></symbol>
+        <symbol id="w-fog" viewBox="0 0 32 32"><g stroke="var(--cloud)" stroke-width="2.6" stroke-linecap="round"><path d="M6 12h20M4 17h24M7 22h18"/></g></symbol>
+        <symbol id="w-none" viewBox="0 0 32 32"><path d="M10 16h12" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    </svg>
+
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark"><svg><use href="#i-drop"/></svg></span>
+            <div>
+                <h1>Strop</h1>
+                <p class="brand-sub">Garden irrigation</p>
+            </div>
+        </div>
+        <div class="topbar-right">
+            <span class="conn" id="conn" title="Connection to controller">
+                <span class="conn-dot"></span><span class="conn-text">Connecting…</span>
+            </span>
+            <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle dark mode">
+                <svg class="show-light"><use href="#i-moon"/></svg>
+                <svg class="show-dark"><use href="#i-sun"/></svg>
             </button>
         </div>
-        <h1 class="text-center mb-3 mb-md-4">Valve Control System</h1>
-        
-        <div class="row justify-content-center">
-            <div class="col-12 col-md-5 mb-4 mb-md-4">
-                <div class="card valve" id="valve1">
-                    <div class="card-header" id="header1">
-                        <h2 class="h4 mb-0 d-flex justify-content-between align-items-center">
-                            <span>Valve 1</span>
-                            <span class="badge bg-secondary" id="status-badge-1">Unknown</span>
-                        </h2>
+    </header>
+
+    <main class="page">
+        <section class="overview" id="overview" aria-live="polite">
+            <div class="overview-main">
+                <p class="eyebrow">Today</p>
+                <p class="overview-title" id="overview-title">Loading…</p>
+                <p class="overview-sub" id="overview-sub"></p>
+            </div>
+            <div class="overview-stats" id="overview-stats"></div>
+        </section>
+
+        <section class="zones" id="zones" aria-label="Zones"></section>
+
+        <section class="panel" aria-labelledby="weather-title">
+            <div class="panel-head">
+                <h2 id="weather-title">Weather &amp; watering</h2>
+                <p class="panel-note" id="weather-note"></p>
+            </div>
+            <div class="days" id="days" tabindex="0" aria-label="Past and upcoming days"></div>
+            <div class="legend">
+                <span><i class="sw sw-z1"></i>Zone 1 watered</span>
+                <span><i class="sw sw-z2"></i>Zone 2 watered</span>
+                <span><i class="sw sw-plan"></i>Planned</span>
+            </div>
+        </section>
+    </main>
+
+    <template id="zone-template">
+        <article class="zone">
+            <header class="zone-head">
+                <div>
+                    <h2 class="zone-name"></h2>
+                    <p class="zone-next"></p>
+                </div>
+                <span class="pill"></span>
+            </header>
+
+            <div class="zone-body">
+                <div class="dial" role="img">
+                    <svg viewBox="0 0 120 120" class="dial-svg" aria-hidden="true">
+                        <circle cx="60" cy="60" r="52" class="dial-track"/>
+                        <circle cx="60" cy="60" r="52" class="dial-bar"/>
+                    </svg>
+                    <div class="dial-center">
+                        <svg class="dial-icon"><use href="#i-drop"/></svg>
+                        <span class="dial-time"></span>
+                        <span class="dial-label"></span>
                     </div>
-                    <div class="card-body">
-                        <div class="controls mb-3">
-                            <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center gap-2 mb-3">
-                                <button class="btn btn-success btn-toggle flex-grow-1" data-valve="1" data-action="toggle">Activate</button>
-                                <div class="d-flex flex-column align-items-start">
-                                    <input type="number" class="form-control duration-input" id="duration1" placeholder="Duration (minutes)" min="0" step="1" style="max-width: 120px;">
-                                    <small class="form-text text-muted mt-1">Max 60 minutes</small>
-                                </div>
-                            </div>
+                </div>
+
+                <div class="zone-controls">
+                    <div class="run-idle">
+                        <p class="ctl-label">Water now</p>
+                        <div class="chips quick" role="group" aria-label="Duration">
+                            <button type="button" class="chip" data-min="5">5 min</button>
+                            <button type="button" class="chip" data-min="10">10 min</button>
+                            <button type="button" class="chip" data-min="15">15 min</button>
+                            <button type="button" class="chip" data-min="30">30 min</button>
                         </div>
-                        <div class="mt-2">
-                            <ul class="nav nav-tabs" id="valve1-tabs" role="tablist">
-                                <li class="nav-item">
-                                    <a class="nav-link active" data-bs-toggle="tab" href="#automation-schedule-1" role="tab">Automation Schedule</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" data-bs-toggle="tab" href="#recent-operations-1" role="tab">Recent Operations</a>
-                                </li>
-                            </ul>
-                            <div class="tab-content">
-                                <div class="tab-pane fade show active" id="automation-schedule-1" role="tabpanel">
-                                    <div class="cron-schedule">
-                                        <div class="form-group mb-2">
-                                            <div id="cron1-builder"></div>
-                                        </div>
-                                        <div class="form-group mb-2">
-                                            <label for="cron-duration1">Duration (minutes):</label>
-                                            <input type="number" class="form-control" id="cron-duration1" placeholder="Duration in minutes" min="1" value="1">
-                                        </div>
-                                        <div class="form-group mb-2">
-                                            <div class="form-check">
-                                                <input type="checkbox" class="form-check-input" id="enabled1">
-                                                <label class="form-check-label" for="enabled1">Enable Schedule</label>
-                                            </div>
-                                        </div>
-                                        <button class="btn btn-primary" id="save-cron1">Save Schedule</button>
-                                        <button class="btn btn-secondary" id="clear-cron1">Clear Schedule</button>
-                                    </div>
-                                    <div id="cron1-status" class="mt-2"></div>
-                                </div>
-                                <div class="tab-pane fade" id="recent-operations-1" role="tabpanel">
-                                    <div id="history1" class="history-container"></div>
-                                </div>
-                            </div>
+                        <div class="custom-run">
+                            <label class="field-inline">
+                                <input type="number" class="input custom-min" min="1" max="60" step="1" inputmode="numeric" aria-label="Minutes">
+                                <span>min</span>
+                            </label>
+                            <button type="button" class="btn btn-primary start-btn">
+                                <svg><use href="#i-play"/></svg>Start
+                            </button>
                         </div>
+                    </div>
+                    <div class="run-active">
+                        <p class="ctl-label">Watering</p>
+                        <p class="run-detail"></p>
+                        <button type="button" class="btn btn-danger stop-btn">
+                            <svg><use href="#i-stop"/></svg>Stop now
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div class="col-12 col-md-5 mb-4 mb-md-4">
-                <div class="card valve" id="valve2">
-                    <div class="card-header" id="header2">
-                        <h2 class="h4 mb-0 d-flex justify-content-between align-items-center">
-                            <span>Valve 2</span>
-                            <span class="badge bg-secondary" id="status-badge-2">Unknown</span>
-                        </h2>
+            <div class="zone-section schedule">
+                <div class="section-row">
+                    <div class="schedule-summary">
+                        <p class="ctl-label">Schedule</p>
+                        <p class="schedule-text"></p>
                     </div>
-                    <div class="card-body">
-                        <div class="controls mb-3">
-                            <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center gap-2 mb-3">
-                                <button class="btn btn-success btn-toggle flex-grow-1" data-valve="2" data-action="toggle">Activate</button>
-                                <div class="d-flex flex-column align-items-start">
-                                    <input type="number" class="form-control duration-input" id="duration2" placeholder="Duration (minutes)" min="0" step="1" style="max-width: 120px;">
-                                    <small class="form-text text-muted mt-1">Max 60 minutes</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="mt-2">
-                            <ul class="nav nav-tabs" id="valve2-tabs" role="tablist">
-                                <li class="nav-item">
-                                    <a class="nav-link active" data-bs-toggle="tab" href="#automation-schedule-2" role="tab">Automation Schedule</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" data-bs-toggle="tab" href="#recent-operations-2" role="tab">Recent Operations</a>
-                                </li>
-                            </ul>
-                            <div class="tab-content">
-                                <div class="tab-pane fade show active" id="automation-schedule-2" role="tabpanel">
-                                    <div class="cron-schedule">
-                                        <div class="form-group mb-2">
-                                            <div id="cron2-builder"></div>
-                                        </div>
-                                        <div class="form-group mb-2">
-                                            <label for="cron-duration2">Duration (minutes):</label>
-                                            <input type="number" class="form-control" id="cron-duration2" placeholder="Duration in minutes" min="1" value="1">
-                                        </div>
-                                        <div class="form-group mb-2">
-                                            <div class="form-check">
-                                                <input type="checkbox" class="form-check-input" id="enabled2">
-                                                <label class="form-check-label" for="enabled2">Enable Schedule</label>
-                                            </div>
-                                        </div>
-                                        <button class="btn btn-primary" id="save-cron2">Save Schedule</button>
-                                        <button class="btn btn-secondary" id="clear-cron2">Clear Schedule</button>
-                                    </div>
-                                    <div id="cron2-status" class="mt-2"></div>
-                                </div>
-                                <div class="tab-pane fade" id="recent-operations-2" role="tabpanel">
-                                    <div id="history2" class="history-container"></div>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="schedule-actions">
+                        <button type="button" class="icon-btn edit-btn" aria-label="Edit schedule"><svg><use href="#i-edit"/></svg></button>
+                        <label class="switch" title="Enable schedule">
+                            <input type="checkbox" class="schedule-toggle" aria-label="Enable schedule">
+                            <span class="switch-track"></span>
+                        </label>
                     </div>
                 </div>
+
+                <form class="editor" hidden>
+                    <fieldset class="editor-days">
+                        <legend class="ctl-label">Days</legend>
+                        <div class="chips days-chips"></div>
+                    </fieldset>
+                    <div class="editor-row">
+                        <label class="field">
+                            <span class="ctl-label">Start time</span>
+                            <input type="time" class="input ed-time" required>
+                        </label>
+                        <label class="field">
+                            <span class="ctl-label">Duration (min)</span>
+                            <input type="number" class="input ed-duration" min="1" max="60" step="1" inputmode="numeric" required>
+                        </label>
+                    </div>
+                    <details class="advanced">
+                        <summary>Advanced (cron expression)</summary>
+                        <label class="field">
+                            <span class="ctl-label">minute hour day month weekday · 0/7 = Sunday</span>
+                            <input type="text" class="input ed-cron" spellcheck="false" autocomplete="off" placeholder="30 6 * * 1,3,5">
+                        </label>
+                    </details>
+                    <p class="editor-error" role="alert"></p>
+                    <div class="editor-actions">
+                        <button type="button" class="btn btn-ghost danger-text ed-delete">Delete schedule</button>
+                        <span class="spacer"></span>
+                        <button type="button" class="btn btn-ghost ed-cancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary ed-save">Save</button>
+                    </div>
+                </form>
             </div>
-        </div>
-        
-       <!-- Weather Forecast Section -->
-       <div class="row mt-4 mt-md-5 justify-content-center">
-           <div class="col-12 col-md-10">
-               <h2 class="text-center mb-4">5-Day Weather Forecast</h2>
-               <div id="weather-cards" class="row justify-content-center weather-card-container">
-                   <!-- Weather cards will be populated here by JavaScript -->
-               </div>
-           </div>
-       </div>
-        
-        <div id="message-area" class="mt-4"></div>
-    </div>
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="cron-builder.js"></script>
-    <script src="script.js"></script>
+
+            <div class="zone-section">
+                <p class="ctl-label">Recent</p>
+                <ul class="history"></ul>
+            </div>
+        </article>
+    </template>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js?v=4"></script>
 </body>
 </html>

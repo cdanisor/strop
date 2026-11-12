@@ -170,6 +170,23 @@ class GPIOControlService:
     def get_all_valve_status(self) -> Dict[int, bool]:
         return self.valve_states.copy()
 
+    def get_valve_details(self, valve_id: int) -> Dict[str, Any]:
+        """Open state plus start time, planned duration and remaining seconds."""
+        with self._lock:
+            is_open = self.valve_states.get(valve_id, False)
+            details = {'open': is_open, 'started_at': None, 'duration': None, 'remaining': None}
+            if is_open:
+                start = self.valve_start_times.get(valve_id)
+                timer = self.active_timers.get(valve_id)
+                if start is not None:
+                    details['started_at'] = start.isoformat()
+                if timer is not None:
+                    details['duration'] = int(timer.interval)
+                    if start is not None:
+                        elapsed = (datetime.datetime.now() - start).total_seconds()
+                        details['remaining'] = max(0, int(round(timer.interval - elapsed)))
+            return details
+
     def cleanup(self) -> None:
         """Close all valves (finishing their logs) and release GPIO."""
         if not self.is_initialized:

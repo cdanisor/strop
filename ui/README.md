@@ -1,70 +1,31 @@
-# Valve Control UI
+# Strop UI
 
-A simple web-based user interface for controlling irrigation valves using jQuery and the existing API.
+Single-page dashboard for the irrigation controller: zone status with a live
+countdown, manual watering, weekly schedules, recent activity and a 12-day
+weather / watering strip.
 
-## Features
+## Files
 
-- Display status of two valves (Active/Inactive)
-- Activate valves with optional duration
-- Deactivate valves
-- Refresh status manually
-- Auto-refresh every 10 seconds
-- Responsive design for different screen sizes
+- `index.html` – markup, inline SVG icon sprite, zone template
+- `styles.css` – all styling (light/dark via CSS variables, no framework)
+- `app.js` – vanilla JavaScript, no dependencies
+- `server.py` – tiny static server that injects `api_url` from `config.json`
 
-## Requirements
+No build step and no CDN: the page works on a LAN without internet access.
 
-- Python 3.x
-- jQuery (loaded from CDN)
-- Running instance of the irrigation API server
-- The system will run in simulation mode if GPIO hardware is not available
+## Built for the Raspberry Pi 1
 
-## Setup
+- The whole page is built from one request, `GET /api/dashboard`.
+- While idle the page polls only `GET /api/valves/status` every 15 s and
+  reloads the dashboard when a valve changes state (or every 5 minutes).
+- Polling pauses while the tab is hidden; countdowns run in the browser.
+- Static files are cached by the browser for a day; bump the `?v=` number
+  in `index.html` when `styles.css` or `app.js` change.
+- `server.py` does not write access logs (spares the SD card).
 
-1. Ensure the API server is running:
-   ```bash
-   python src/api_server.py
-   ```
+## Run locally
 
-2. Start the UI server:
-   ```bash
-   python ui/server.py
-   ```
-
-3. Open your browser and navigate to:
-   ```
-   http://localhost:8000
-   ```
-
-## Usage
-
-### Valve Controls
-
-- **Activate Valve**: Click the "Activate" button to turn on a valve. Optionally enter a duration in seconds.
-- **Deactivate Valve**: Click the "Deactivate" button to turn off a valve.
-- **Refresh Status**: Click the "Refresh Status" button to manually update valve statuses.
-
-### API Endpoints Used
-
-- `GET /api/valves/status` - Get status of all valves
-- `GET /api/valves/{valve_id}/status` - Get status of a specific valve
-- `POST /api/valves/{valve_id}/activate` - Activate a valve
-- `POST /api/valves/{valve_id}/deactivate` - Deactivate a valve
-
-## File Structure
-
+```bash
+python src/api_server.py      # API on :5000 (GPIO simulated off the Pi)
+python ui/server.py           # UI on :8000
 ```
-ui/
-├── index.html          # Main HTML page
-├── styles.css          # CSS styling
-├── script.js           # jQuery JavaScript code
-└── server.py           # Simple HTTP server for development
-```
-
-## Design Notes
-
-- The UI uses a clean, modern design with responsive layout
-- Status indicators change color based on valve state (green for active, red for inactive)
-- Error messages are displayed when API calls fail
-- Success messages confirm successful operations
-- Duration input is optional for activation
-- Auto-refresh keeps the UI in sync with the actual valve states

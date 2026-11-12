@@ -557,6 +557,77 @@ class APIService:
                     'message': f'Error getting valves next run times: {str(e)}'
                 }), 500
     
+        # Route for the whole dashboard in one request (cheap for the Pi:
+        # the UI polls only /api/valves/status and calls this on changes)
+        @self.app.route('/api/dashboard', methods=['GET'])
+        def get_dashboard():
+            """Valves (state, schedule, next runs, history), usage and weather."""
+            try:
+                from src.database import Database
+                from src.main_service import main_service
+                from datetime import datetime, timedelta
+                db = Database()
+                now = datetime.now()
+                today = now.date()
+
+                valves = []
+                for valve_id in (1, 2):
+                    details = main_service.get_valve_details(valve_id)
+                    cron = db.get_valve_cron(valve_id) or {}
+                    next_runs = []
+                    if cron.get('enabled') and cron.get('cron_expression'):
+                        try:
+                            next_runs = [r.isoformat() for r in next_run_times(cron['cron_expression'], 5)]
+                        except CronValidationError as e:
+                            logger.error(f"Invalid cron for valve {valve_id}: {e}")
+                    history = [
+                        {'status': log['status'], 'start_time': log['start_time'] or log['timestamp'],
+                         'duration': log['duration']}
+                        for log in db.get_valve_logs(valve_id=valve_id, limit=5)
+                    ]
+                    valves.append({
+                        'id': valve_id,
+                        **details,
+                        'schedule': {
+                            'cron_expression': cron.get('cron_expression') or '',
+                            'enabled': bool(cron.get('enabled')),
+                            'duration': cron.get('duration'),
+                            'last_run': cron.get('last_run'),
+                            'next_runs': next_runs,
+                        },
+                        'history': history,
+                    })
+
+                # Watering seconds per valve per day for the last 7 days
+                usage = {1: {}, 2: {}}
+                start_day = today - timedelta(days=6)
+                for log in db.get_valve_logs(limit=500):
+                    if not log['duration']:
+                        continue
+                    started = log['start_time'] or log['timestamp']
+                    try:
+                        day = datetime.fromisoformat(str(started)).date()
+                    except ValueError:
+                        continue
+                    if start_day <= day <= today and log['valve_id'] in usage:
+                        key = day.isoformat()
+                        usage[log['valve_id']][key] = usage[log['valve_id']].get(key, 0) + log['duration']
+
+                weather = [w for w in db.get_all_daily_weather_data()
+                           if (datetime.strptime(w['date'], '%Y-%m-%d').date() - today).days <= 5]
+                weather_updated = max((w['timestamp'] for w in weather if w['timestamp']), default=None)
+
+                return jsonify({
+                    'server_time': now.isoformat(),
+                    'valves': valves,
+                    'usage': usage,
+                    'weather': weather,
+                    'weather_updated': weather_updated,
+                }), 200
+            except Exception as e:
+                logger.error(f"Error building dashboard: {e}")
+                return jsonify({'success': False, 'message': f'Error building dashboard: {str(e)}'}), 500
+
     def run(self):
         """Start the API server."""
         try:

@@ -140,6 +140,12 @@ class MainService:
    		
         return self.gpio_service.get_all_valve_status()
     
+    def get_valve_details(self, valve_id: int) -> Dict[str, Any]:
+        """Open state, start time, planned duration and remaining seconds of a valve."""
+        if not self.is_running or not self.gpio_service:
+            return {'open': False, 'started_at': None, 'duration': None, 'remaining': None}
+        return self.gpio_service.get_valve_details(valve_id)
+
     def cleanup(self) -> None:
         """
         Cleanup all resources.

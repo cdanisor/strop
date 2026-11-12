@@ -103,3 +103,17 @@ def test_forecast_endpoint_no_longer_crashes(client):
     r = client.get('/api/weather/forecast')
     assert r.status_code == 200
     assert r.get_json()['forecast'][0]['average_humidity'] == 80
+
+
+def test_dashboard_reports_state_schedule_and_remaining(client):
+    client.post('/api/valves/1/cron', json={'cron_expression': '30 7 * * 6', 'duration': 300, 'enabled': True})
+    client.post('/api/valves/2/activate', json={'duration': 120})
+    d = client.get('/api/dashboard').get_json()
+    v1, v2 = d['valves']
+    assert v1['id'] == 1 and v1['open'] is False
+    assert v1['schedule']['enabled'] is True and len(v1['schedule']['next_runs']) == 5
+    assert all(datetime.fromisoformat(r).strftime('%A') == 'Saturday' for r in v1['schedule']['next_runs'])
+    assert v2['open'] is True and v2['duration'] == 120 and 115 <= v2['remaining'] <= 120
+    assert v2['history'][0]['status'] == 'Opened'
+    assert set(d['usage']) == {'1', '2'}
+    assert 'weather' in d and 'server_time' in d
