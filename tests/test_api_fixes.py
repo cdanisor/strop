@@ -16,7 +16,8 @@ def client():
     with patch('src.services.weather.weather_service.WeatherService.update_weather_data', return_value=True), \
          patch('src.services.weather.cron_scheduler.CronScheduler.start'):
         assert main_service.initialize()
-    yield api_service.app.test_client()
+    from conftest import login
+    yield login(api_service.app.test_client())
     main_service.cleanup()
 
 

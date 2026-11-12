@@ -17,6 +17,11 @@ DEFAULT_MANUAL_DURATION = 60
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+# Per-request access logs flood the journal (and wear the SD card)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+# Endpoints reachable without a token
+PUBLIC_ENDPOINTS = {'/api/health', '/api/auth/login', '/api/auth/status'}
 
 class APIService:
     """Service for exposing valve control through REST API."""
@@ -32,9 +37,68 @@ class APIService:
         self.host = host
         self.port = port
         self.app = Flask(__name__)
-        # Enable CORS for all routes - simple and clean configuration
-        CORS(self.app, supports_credentials=True)
+        # Bearer tokens (no cookies), so credentials are not needed for CORS
+        CORS(self.app, allow_headers=['Content-Type', 'Authorization'])
+        self._auth = None
+        self._setup_auth()
         self._setup_routes()
+
+    @property
+    def auth(self):
+        """AuthService sharing the main service's configuration (created lazily)."""
+        if self._auth is None:
+            from src.main_service import main_service
+            from src.services.auth_service import AuthService
+            self._auth = AuthService(main_service.config_service)
+        return self._auth
+
+    def _setup_auth(self):
+        """Require a valid bearer token on every API endpoint except PUBLIC_ENDPOINTS."""
+
+        @self.app.before_request
+        def require_token():
+            if request.method == 'OPTIONS' or not request.path.startswith('/api/'):
+                return None
+            if request.path in PUBLIC_ENDPOINTS:
+                return None
+            header = request.headers.get('Authorization', '')
+            token = header[7:].strip() if header.lower().startswith('bearer ') else None
+            if not self.auth.verify_token(token):
+                return jsonify({'success': False, 'message': 'Authentication required',
+                                'auth_required': True}), 401
+            return None
+
+        @self.app.route('/api/auth/status', methods=['GET'])
+        def auth_status():
+            """Whether a password is configured (no secrets revealed)."""
+            return jsonify({'configured': self.auth.is_configured()}), 200
+
+        @self.app.route('/api/auth/login', methods=['POST'])
+        def auth_login():
+            """Exchange the password for a bearer token."""
+            auth = self.auth
+            key = auth.client_key(request.remote_addr, request.headers.get('X-Forwarded-For'))
+            wait = auth.retry_after(key)
+            if wait:
+                resp = jsonify({'success': False,
+                                'message': f'Too many failed attempts. Try again in {max(1, wait // 60)} min.'})
+                resp.headers['Retry-After'] = str(wait)
+                return resp, 429
+            if not auth.is_configured():
+                return jsonify({'success': False,
+                                'message': 'No password set on the controller. Run scripts/set_password.py on the Pi.'}), 503
+            payload = request.get_json(silent=True) or {}
+            if not auth.check_password(str(payload.get('password') or '')):
+                auth.record_failure(key)
+                return jsonify({'success': False, 'message': 'Wrong password'}), 401
+            auth.record_success(key)
+            return jsonify({'success': True, 'token': auth.issue_token(),
+                            'expires_in': auth.token_max_age}), 200
+
+        @self.app.route('/api/auth/check', methods=['GET'])
+        def auth_check():
+            """Protected no-op used by the UI to validate a stored token."""
+            return jsonify({'success': True}), 200
     
     def _setup_routes(self):
         """Setup API routes."""

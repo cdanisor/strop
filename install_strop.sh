@@ -48,12 +48,19 @@ Description=Strop API Service
 After=network.target
 
 [Service]
-Type=simple
+# notify + watchdog: the app reports READY and pets the watchdog while healthy;
+# if it hangs, systemd kills and restarts it
+Type=notify
+NotifyAccess=main
+WatchdogSec=60
+TimeoutStartSec=180
 User=$RUNNING_USER
 WorkingDirectory=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/src/api_server.py
+# Always switch the valve relays off after the service stops or crashes
+ExecStopPost=$PROJECT_DIR/venv/bin/python3 $PROJECT_DIR/src/gpio_safe_off.py
 Restart=always
-RestartSec=10
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -99,6 +106,8 @@ echo "Verifying network accessibility..."
 echo "API should be accessible at http://$(hostname -I | awk '{print $1}'):5000"
 echo "UI should be accessible at http://$(hostname -I | awk '{print $1}'):8000"
 
+echo "Set the controller password (required to use the UI/API):"
+echo "  cd $PROJECT_DIR && venv/bin/python3 scripts/set_password.py"
 echo "Installation completed successfully!"
 echo "Services:"
 echo "  - API Service: http://$(hostname -I | awk '{print $1}'):5000"

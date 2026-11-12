@@ -531,6 +531,36 @@ svg { display: block; }
 .method summary { cursor: pointer; }
 .method p { margin-top: 8px; line-height: 1.55; max-width: 72ch; }
 
+/* ------------------------------------------------------------------ login */
+body.locked .page, body.locked .conn, body.locked #logout { visibility: hidden; }
+.login {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: var(--bg);
+    z-index: 20;
+}
+.login-card {
+    width: 100%;
+    max-width: 360px;
+    display: grid;
+    gap: 14px;
+    padding: 28px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+.login-mark { width: 44px; height: 44px; }
+.login-card h2 { font-size: 20px; font-weight: 650; }
+.login-sub { color: var(--muted); margin-top: -8px; }
+.login-card .input { height: 44px; font-size: 16px; }
+.login-card .btn { height: 44px; }
+.login-hint { font-size: 13px; color: var(--warn); }
+.login-hint:empty { display: none; }
+
 /* ------------------------------------------------------------------ toast */
 .toast {
     position: fixed;

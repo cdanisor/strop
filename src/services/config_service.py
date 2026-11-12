@@ -129,7 +129,14 @@ class ConfigService:
         Save current configuration to file.
         """
         try:
-            with open(self.config_path, 'w') as f:
+            # Write atomically and keep it private: it holds the password hash
+            tmp_path = self.config_path + '.tmp'
+            with open(tmp_path, 'w') as f:
                 json.dump(self.config, f, indent=4)
+            try:
+                os.chmod(tmp_path, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_path, self.config_path)
         except Exception as e:
             raise Exception(f"Failed to save configuration: {e}")

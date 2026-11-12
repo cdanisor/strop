@@ -18,7 +18,8 @@ class TestAPIService(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         # Create a mock Flask app for testing
-        self.app = api_service.app.test_client()
+        from conftest import login
+        self.app = login(api_service.app.test_client())
         self.app_context = api_service.app.app_context()
         self.app_context.push()
     

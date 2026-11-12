@@ -171,6 +171,35 @@ class GPIOControlService:
     def get_all_valve_status(self) -> Dict[int, bool]:
         return self.valve_states.copy()
 
+    def verify_outputs(self) -> list:
+        """
+        Compare the real GPIO levels with the expected valve states.
+        A pin found HIGH for a closed valve is forced LOW; a valve marked open
+        whose pin reads LOW is closed in software (finishing its log).
+        Returns the list of corrected valve ids.
+        """
+        if self.is_simulation_mode or not self.is_initialized:
+            return []
+        corrected = []
+        with self._lock:
+            for valve_id in VALVE_IDS:
+                pin = self._pin(valve_id)
+                try:
+                    level = self._gpio.input(pin)
+                except Exception as e:
+                    logger.error(f"Cannot read GPIO {pin}: {e}")
+                    continue
+                expected = self.valve_states[valve_id]
+                if level and not expected:
+                    logger.error(f"GPIO {pin} is HIGH but valve {valve_id} should be closed, forcing LOW")
+                    self._gpio.output(pin, self._gpio.LOW)
+                    corrected.append(valve_id)
+                elif expected and not level:
+                    logger.error(f"Valve {valve_id} marked open but GPIO {pin} is LOW, closing it in software")
+                    self.deactivate_valve(valve_id, status='Watchdog Stopped')
+                    corrected.append(valve_id)
+        return corrected
+
     def get_valve_details(self, valve_id: int) -> Dict[str, Any]:
         """Open state plus start time, planned duration and remaining seconds."""
         with self._lock:

@@ -89,6 +89,19 @@
         return isNaN(d) ? null : d;
     }
 
+    // ------------------------------------------------------------------ auth token
+    var TOKEN_KEY = 'strop-token';
+    var memoryToken = null;
+    function getToken() {
+        try { return localStorage.getItem(TOKEN_KEY) || memoryToken; } catch (e) { return memoryToken; }
+    }
+    function setToken(token) {
+        memoryToken = token;
+        try {
+            if (token) localStorage.setItem(TOKEN_KEY, token); else localStorage.removeItem(TOKEN_KEY);
+        } catch (e) {}
+    }
+
     // ------------------------------------------------------------------ API
     function api(path, options) {
         options = options || {};
@@ -96,6 +109,8 @@
         var t = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : null;
         var init = { method: options.method || 'GET', headers: {} };
         if (ctrl) init.signal = ctrl.signal;
+        var token = getToken();
+        if (token) init.headers['Authorization'] = 'Bearer ' + token;
         if (options.body !== undefined) {
             init.headers['Content-Type'] = 'application/json';
             init.body = JSON.stringify(options.body);
@@ -106,6 +121,11 @@
                 if (!res.ok) {
                     var err = new Error(data.message || data.error || ('Request failed (' + res.status + ')'));
                     err.status = res.status;
+                    if (res.status === 401 && data.auth_required) {
+                        err.auth = true;
+                        setToken(null);
+                        showLogin();
+                    }
                     throw err;
                 }
                 return data;
@@ -735,6 +755,7 @@
             renderDays(d);
             setConnection(true);
         }).catch(function (e) {
+            if (e.auth) return;
             setConnection(false);
             if (!state.dashboard) {
                 $('#overview-title').textContent = 'Controller unreachable';
@@ -745,7 +766,7 @@
     }
 
     function pollStatus() {
-        if (document.hidden) return;
+        if (document.hidden || state.locked) return;
         if (Date.now() - state.lastDashboardAt > DASHBOARD_REFRESH_MS) { loadDashboard(); return; }
         api('/valves/status').then(function (s) {
             setConnection(true);
@@ -769,6 +790,55 @@
         }
     }
 
+    // ------------------------------------------------------------------ login
+    function showLogin(message) {
+        if (state.locked && !message) return;
+        state.locked = true;
+        document.body.classList.add('locked');
+        var box = $('#login');
+        box.hidden = false;
+        $('#login-error').textContent = message || '';
+        var input = $('#login-password');
+        input.value = '';
+        setTimeout(function () { input.focus(); }, 50);
+        api('/auth/status').then(function (s) {
+            $('#login-hint').textContent = s.configured ? ''
+                : 'No password is set yet. On the Pi run: venv/bin/python3 scripts/set_password.py';
+        }).catch(function () {});
+    }
+
+    function hideLogin() {
+        state.locked = false;
+        document.body.classList.remove('locked');
+        $('#login').hidden = true;
+    }
+
+    $('#login-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var btn = $('#login-submit');
+        var password = $('#login-password').value;
+        if (!password) return;
+        $('#login-error').textContent = '';
+        withBusy(btn, function () {
+            return api('/auth/login', { method: 'POST', body: { password: password } })
+                .then(function (r) {
+                    setToken(r.token);
+                    hideLogin();
+                    return loadDashboard();
+                })
+                .catch(function (err) {
+                    $('#login-error').textContent = err.message;
+                    $('#login-password').select();
+                });
+        });
+    });
+
+    $('#logout').addEventListener('click', function () {
+        setToken(null);
+        state.dashboard = null;
+        showLogin();
+    });
+
     // ------------------------------------------------------------------ theme
     function currentTheme() {
         var t = document.documentElement.getAttribute('data-theme');
@@ -783,10 +853,10 @@
 
     // ------------------------------------------------------------------ start
     document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) loadDashboard();
+        if (!document.hidden && !state.locked) loadDashboard();
     });
     VALVES.forEach(createZone);
-    loadDashboard();
+    if (getToken()) loadDashboard(); else showLogin();
     setInterval(pollStatus, STATUS_POLL_MS);
     setInterval(tickAll, 1000);
 })();
