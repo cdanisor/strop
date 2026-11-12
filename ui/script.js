@@ -66,6 +66,24 @@ $(document).ready(function() {
     
     // Store previous statuses to detect changes
     let previousStatuses = {};
+
+    // YYYY-MM-DD in the browser's local time zone (toISOString() is UTC and
+    // shifts dates by one day around midnight in Romania)
+    function localDateString(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    // Human readable duration from seconds (e.g. "45 s", "5 min", "2 min 30 s")
+    function formatDuration(seconds) {
+        seconds = Math.max(0, Math.round(seconds || 0));
+        if (seconds < 60) return `${seconds} s`;
+        const minutes = Math.floor(seconds / 60);
+        const rest = seconds % 60;
+        return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+    }
     
     // Function to update valve status display
     function updateValveStatus(valveId, status) {
@@ -147,11 +165,10 @@ $(document).ready(function() {
                         }
                         previousStatuses[valveId] = status;
                     });
-                    // If status changed, refresh history as well
+                    // If status changed, refresh history and usage badges as well
                     if (statusChanged) {
                         getAllValveHistories();
-                        // Update usage when status changes
-                        getValveUsage();
+                        getWeatherForecast();
                     }
                 }
             },
@@ -176,8 +193,7 @@ $(document).ready(function() {
                 if (previousStatuses[valveId] !== data.status) {
                     previousStatuses[valveId] = data.status;
                     getAllValveHistories();
-                    // Update usage when status changes
-                    getValveUsage();
+                    getWeatherForecast();
                 } else {
                     previousStatuses[valveId] = data.status;
                 }
@@ -222,7 +238,7 @@ $(document).ready(function() {
             timeout: 10000, // 10 second timeout
             success: function(data) {
                 // Show message with original minutes value for user clarity
-                const displayDuration = `${Math.ceil(limitedDuration/60)} minutes`;
+                const displayDuration = formatDuration(limitedDuration);
                 showMessage(data.message + ` (${displayDuration})`, 'success');
                 getValveStatus(valveId);
             },
@@ -403,7 +419,7 @@ $(document).ready(function() {
                         window.cronBuilder[valveId].setExpression(cron.cron_expression || '');
                     }
                     // Convert seconds back to minutes for display
-                    const durationMinutes = Math.floor((cron.duration || 60) / 60);
+                    const durationMinutes = Math.max(1, Math.round((cron.duration || 60) / 60));
                     $(`#cron-duration${valveId}`).val(durationMinutes);
                     $(`#enabled${valveId}`).prop('checked', cron.enabled || false);
                 }
@@ -436,6 +452,14 @@ $(document).ready(function() {
             showMessage('Please enter a cron expression', 'error');
             return;
         }
+
+        if (window.cronBuilder && window.cronBuilder[valveId]) {
+            const validationError = window.cronBuilder[valveId].validate();
+            if (validationError) {
+                showMessage(validationError, 'error');
+                return;
+            }
+        }
         
         // Convert minutes to seconds for API
         const durationSeconds = durationMinutes * 60;
@@ -456,6 +480,8 @@ $(document).ready(function() {
                 showMessage(data.message || `Cron schedule saved for valve ${valveId}`, 'success');
                 // Reload the schedule to show updated values
                 loadValveCronSchedule(valveId);
+                // Refresh the next-run badges on the weather cards
+                getWeatherForecast();
             },
             error: function(xhr, status, error) {
                 const errorMessage = xhr.responseJSON ? xhr.responseJSON.message : error || 'Unknown error';
@@ -464,21 +490,32 @@ $(document).ready(function() {
         });
     }
     
-    // Function to clear valve cron schedule
+    // Function to clear valve cron schedule (on the server too)
     function clearValveCronSchedule(valveId) {
-        // Clear the cron builder (if it exists)
-        if (window.cronBuilder && window.cronBuilder[valveId]) {
-            window.cronBuilder[valveId].reset();
+        if (!confirm(`Clear the automation schedule for valve ${valveId}?`)) {
+            return;
         }
-        
-        // Clear the duration input
-        $(`#cron-duration${valveId}`).val(1);  // Default to 1 minute
-        $(`#enabled${valveId}`).prop('checked', false);
-        
-        // Show status message
-        $(`#cron${valveId}-status`).html('<p class="text-muted">Schedule cleared</p>');
+        $.ajax({
+            url: `${API_BASE_URL}/valves/${valveId}/cron`,
+            method: 'DELETE',
+            timeout: 10000,
+            success: function(data) {
+                if (window.cronBuilder && window.cronBuilder[valveId]) {
+                    window.cronBuilder[valveId].reset();
+                }
+                $(`#cron-duration${valveId}`).val(1);
+                $(`#enabled${valveId}`).prop('checked', false);
+                $(`#cron${valveId}-status`).html('<p class="text-muted">Schedule cleared</p>');
+                showMessage(data.message || `Schedule cleared for valve ${valveId}`, 'success');
+                getWeatherForecast();
+            },
+            error: function(xhr, status, error) {
+                const errorMessage = xhr.responseJSON ? xhr.responseJSON.message : error || 'Unknown error';
+                showMessage('Error clearing schedule: ' + errorMessage, 'error');
+            }
+        });
     }
-    
+
     // Function to display valve history with better UX
     function displayValveHistory(valveId, history) {
         const historyContainer = $(`#history${valveId}`);
@@ -499,8 +536,7 @@ $(document).ready(function() {
             
             let durationText = '';
             if (log.duration !== null && log.duration !== undefined && log.status != 'Opened') {
-                const minutes = Math.floor(log.duration / 60);
-                durationText = ` ${minutes} minutes`;
+                durationText = ` ${formatDuration(log.duration)}`;
             } else if (log.duration === 0 && log.status === 'Opened') {
                 // If duration is 0, it means the valve was opened but not yet closed
                 durationText = ' (still open)';
@@ -562,49 +598,6 @@ $(document).ready(function() {
     
     // Initialize valve histories
     getAllValveHistories();
-    
-    // Function to get and display valve usage statistics
-    function getValveUsage() {
-        $.ajax({
-            url: `${API_BASE_URL}/valves/usage`,
-            method: 'GET',
-            timeout: 10000, // 10 second timeout
-            success: function(data) {
-                if (data && data.valves) {
-                    // Display usage stats for each valve
-                    for (let valveId = 1; valveId <= 2; valveId++) {
-                        const usageData = data.valves[valveId];
-                        const usageElement = $(`#valve${valveId}-usage`);
-                        
-                        if (usageData && Object.keys(usageData).length > 0) {
-                            // Get the most recent date (today or most recent day)
-                            const dates = Object.keys(usageData).sort().reverse();
-                            const mostRecentDate = dates[0];
-                            const minutes = usageData[mostRecentDate];
-                            
-                            usageElement.html(`<div class="valve-usage-text">Valve ${valveId}: ${minutes} min</div>`);
-                        } else {
-                            usageElement.html(`<div class="valve-usage-text">Valve ${valveId}: 0 min</div>`);
-                        }
-                    }
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Error fetching valve usage data:', error);
-                // Display default text if error occurs
-                for (let valveId = 1; valveId <= 2; valveId++) {
-                    const usageElement = $(`#valve${valveId}-usage`);
-                    usageElement.html(`<div class="valve-usage-text">Valve ${valveId}: 0 min</div>`);
-                }
-            }
-        });
-    }
-    
-    // Call the function to get initial usage data
-    getValveUsage();
-    
-    // Debug: Log when valve usage is initialized
-    console.log("Valve usage initialization complete");
     
     // Remove auto-refresh for histories (no longer needed as it's triggered by status changes)
     // Previously: setInterval(getAllValveHistories, 30000);
@@ -698,9 +691,9 @@ $(document).ready(function() {
         const weatherCardsContainer = $('#weather-cards');
         weatherCardsContainer.empty();
         
-        // Get today's date for comparison (using UTC to avoid timezone issues)
+        // Today's date at local midnight
         const today = new Date();
-        today.setUTCHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
         
         // Create 12 cards: 6 for past, 1 for current, 5 for future
         const cards = [];
@@ -708,21 +701,21 @@ $(document).ready(function() {
         // Add 6 past days (including today)
         for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
-            date.setUTCDate(today.getUTCDate() - i);
+            date.setDate(today.getDate() - i);
             cards.push({ date: date, index: i, type: 'past' });
         }
         
         // Add 5 future days
         for (let i = 1; i <= 5; i++) {
             const date = new Date(today);
-            date.setUTCDate(today.getUTCDate() + i);
+            date.setDate(today.getDate() + i);
             cards.push({ date: date, index: i, type: 'future' });
         }
         
         // Process each card
         cards.forEach(card => {
             const date = card.date;
-            const dateString = date.toISOString().split('T')[0];
+            const dateString = localDateString(date);
             const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
             const monthName = date.toLocaleDateString('en-US', { month: 'short' });
             const dayNumber = date.getDate();
@@ -775,7 +768,7 @@ $(document).ready(function() {
                 `;
     
                 // Add rain information if available - positioned in top-left corner
-                if (total_rain !== undefined) {
+                if (total_rain !== undefined && total_rain !== null) {
                     cardHtml += `
                         <p class="rain-info">Rain: ${total_rain.toFixed(2)} mm</p>
                     `;
@@ -815,7 +808,7 @@ $(document).ready(function() {
                                 nextRun.next_runs.forEach((nextRunDateStr, index) => {
                                     // Parse the next run date to check if it's for this day
                                     const nextRunDate = new Date(nextRunDateStr);
-                                    const nextRunDateString = nextRunDate.toISOString().split('T')[0];
+                                    const nextRunDateString = localDateString(nextRunDate);
                                     if (nextRunDateString === dateString) {
                                         // Format the time for display
                                         const hours = nextRunDate.getHours().toString().padStart(2, '0');
@@ -928,17 +921,6 @@ $(document).ready(function() {
         // This is a bit tricky since we don't have direct access to the builder's internal methods
         // But we can make sure the hidden input is updated when needed
     }
-
-    // Initialize cron builder for both valves after page load
-    $(document).ready(function() {
-        // Make sure the cron builder is initialized properly
-        if (typeof window.CronBuilder !== 'undefined') {
-            initializeCronBuilder(1);
-            initializeCronBuilder(2);
-        } else {
-            console.error('CronBuilder class is not available');
-        }
-    });
 
     // Ensure tabs are properly initialized after everything is loaded
     $(window).on('load', function() {

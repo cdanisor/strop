@@ -52,7 +52,7 @@ class MainService:
                 print(f"Terminated {opened_count} previously opened records")
                
             # Initialize GPIO service
-            self.gpio_service = GPIOControlService(self.config_service.get_all())
+            self.gpio_service = GPIOControlService(self.config_service.get_all(), self.db)
             
             # Initialize weather service
             self.weather_service = WeatherService()
@@ -148,8 +148,6 @@ class MainService:
             try:
                 # Stop the valve scheduler first
                 if self.valve_scheduler:
-                    # Set a flag to prevent new jobs from being scheduled
-                    self.valve_scheduler.is_running = False
                     self.valve_scheduler.stop()
       
                 # Stop the weather scheduler

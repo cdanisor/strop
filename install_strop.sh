@@ -42,7 +42,7 @@ bash -c "source venv/bin/activate && pip install --upgrade pip && pip install -r
 
 # Create systemd service for API application
 echo "Creating API service..."
-sudo cat > /etc/systemd/system/strop-api.service << EOF
+sudo tee /etc/systemd/system/strop-api.service > /dev/null << EOF
 [Unit]
 Description=Strop API Service
 After=network.target
@@ -61,7 +61,7 @@ EOF
 
 # Create systemd service for UI
 echo "Creating UI service..."
-sudo cat > /etc/systemd/system/strop-ui.service << EOF
+sudo tee /etc/systemd/system/strop-ui.service > /dev/null << EOF
 [Unit]
 Description=Strop UI Service
 After=network.target

@@ -8,10 +8,13 @@ import os
 from pathlib import Path
 from typing import Dict, Any
 
+# config.json lives in the project root; resolve it independently of the CWD
+DEFAULT_CONFIG_PATH = os.environ.get("STROP_CONFIG_PATH") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config.json")
+
 class ConfigService:
     """Service for managing system configuration."""
     
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = DEFAULT_CONFIG_PATH):
         """
         Initialize the configuration service.
         

@@ -49,11 +49,11 @@ class TestDatabase(unittest.TestCase):
         log2 = next(log for log in logs if log['valve_id'] == 2)
         
         # Check first log
-        self.assertEqual(log1['operation'], 'on')
+        self.assertEqual(log1['status'], 'on')
         self.assertEqual(log1['duration'], 30)
         
         # Check second log
-        self.assertEqual(log2['operation'], 'off')
+        self.assertEqual(log2['status'], 'off')
         self.assertIsNone(log2['duration'])
     
     def test_valve_log_filtering(self):

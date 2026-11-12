@@ -9,6 +9,11 @@ import logging
 from typing import Dict, Any, Optional
 import json
 
+from src.services.cron_utils import next_run_times, validate_cron, CronValidationError
+
+MAX_DURATION_SECONDS = 3600
+DEFAULT_MANUAL_DURATION = 60
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,22 +58,22 @@ class APIService:
                         'message': f'Valve {valve_id} is already active'
                     }), 400
                 
-                # Get duration from request (optional)
-                duration = request.json.get('duration')
+                # Get duration from request (optional, body may be missing)
+                payload = request.get_json(silent=True) or {}
+                duration = payload.get('duration')
                 if duration is not None:
                     try:
                         duration = int(duration)
-                        if duration < 0:
-                            return jsonify({'error': 'Duration must be non-negative'}), 400
-                        # Limit duration to 1 hour (3600 seconds)
-                        if duration > 3600:
-                            duration = 3600
-                    except ValueError:
-                        return jsonify({'error': 'Duration must be a valid integer'}), 400
+                    except (TypeError, ValueError):
+                        return jsonify({'success': False, 'message': 'Duration must be a valid integer'}), 400
+                    if duration <= 0:
+                        return jsonify({'success': False, 'message': 'Duration must be at least 1 second'}), 400
+                    # Limit duration to 1 hour (3600 seconds)
+                    duration = min(duration, MAX_DURATION_SECONDS)
                 else:
                     # Default to 1 minute (60 seconds) if no duration specified
-                    duration = 60
-                
+                    duration = DEFAULT_MANUAL_DURATION
+
                 # Activate valve
                 result = main_service.activate_valve(valve_id, duration)
                 
@@ -273,28 +278,15 @@ class APIService:
                 from src.database import Database
                 db = Database()
                 
-                # Get the latest weather data
-                latest_weather = db.get_latest_weather_data()
-                
-                if latest_weather and 'forecast_5day' in latest_weather:
-                    # Parse the forecast JSON data
-                    try:
-                        forecast_data = json.loads(latest_weather['forecast_5day'])
-                        return jsonify({
-                            'forecast': forecast_data
-                        }), 200
-                    except json.JSONDecodeError:
-                        # If we can't parse the JSON, return error
-                        return jsonify({
-                            'success': False,
-                            'message': 'Failed to parse forecast data'
-                        }), 500
-                else:
-                    return jsonify({
-                        'success': False,
-                        'message': 'No forecast data available'
-                    }), 404
-                    
+                # Daily forecast from today onwards
+                forecast = db.get_weather_forecast_data()
+                if forecast:
+                    return jsonify({'forecast': forecast}), 200
+                return jsonify({
+                    'success': False,
+                    'message': 'No forecast data available'
+                }), 404
+
             except Exception as e:
                 logger.error(f"Error getting weather forecast: {e}")
                 return jsonify({
@@ -393,71 +385,55 @@ class APIService:
                     return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
     
                 # Get cron data from request
-                cron_data = request.json
+                cron_data = request.get_json(silent=True)
                 if not cron_data:
-                    return jsonify({'error': 'No cron data provided'}), 400
-    
-                cron_expression = cron_data.get('cron_expression')
+                    return jsonify({'success': False, 'message': 'No cron data provided'}), 400
+
+                cron_expression = (cron_data.get('cron_expression') or '').strip()
                 enabled = cron_data.get('enabled', True)
                 duration = cron_data.get('duration')
-    
+
+                if not isinstance(enabled, bool):
+                    return jsonify({'success': False, 'message': 'enabled must be true or false'}), 400
+
                 if not cron_expression:
-                    return jsonify({'error': 'Cron expression is required'}), 400
-    
-                # Update valve cron
-                success = db.update_valve_cron(valve_id, cron_expression, enabled)
-    
-                if success:
-                    # If duration is provided, update it in the database
-                    if duration is not None:
-                        db.update_valve_cron_duration(valve_id, duration)
-                    # Calculate and set the next run date
-                    from apscheduler.triggers.cron import CronTrigger
-                    from datetime import datetime
+                    return jsonify({'success': False, 'message': 'Cron expression is required'}), 400
+
+                # Reject invalid expressions before they reach the database/scheduler
+                try:
+                    validate_cron(cron_expression)
+                except CronValidationError as e:
+                    return jsonify({'success': False, 'message': str(e)}), 400
+
+                if duration is not None:
                     try:
-                        # Parse the cron expression to get the next run date
-                        trigger = CronTrigger.from_crontab(cron_expression)
-                        # Use the current time properly
-                        current_time = datetime.now()
-                        # Try to get next run time - the method signature is different
-                        # The correct signature is get_next_fire_time(previous_fire_time, now)
-                        # For the first run, we can pass None as previous_fire_time
-                        next_run = trigger.get_next_fire_time(None, current_time)
-                        # Update the next_run date in the database
-                        conn = db.get_connection()
-                        cursor = conn.cursor()
-                        cursor.execute('''
-                            UPDATE valve_cron
-                            SET next_run = ?
-                            WHERE valve_id = ?
-                        ''', (next_run.isoformat(), valve_id))
-                        conn.commit()
-                        conn.close()
-                        logger.info(f"Set next run date for valve {valve_id}: {next_run}")
-                    except Exception as e:
-                        logger.error(f"Error calculating next run date for valve {valve_id}: {e}")
-                        # Even if there's an error, we still return success to avoid breaking the API
-                        # The scheduler will handle invalid cron expressions properly
-                    # Update the scheduler to respect the new cron
-                    try:
-                        # Import the main service to access the scheduler
-                        from src.main_service import main_service
-                        # Restart the scheduler to load the new cron
-                        if main_service.valve_scheduler:
-                            main_service.valve_scheduler._load_existing_crons()
-                        logger.info(f"New cron set for valve {valve_id}, scheduler reinitialized")
-                    except Exception as e:
-                        logger.error(f"Error updating scheduler with new cron for valve {valve_id}: {e}")
-                    return jsonify({
-                        'success': True,
-                        'message': f'Cron schedule set for valve {valve_id}'
-                    }), 200
-                else:
+                        duration = int(duration)
+                    except (TypeError, ValueError):
+                        return jsonify({'success': False, 'message': 'Duration must be a valid integer'}), 400
+                    if duration <= 0 or duration > MAX_DURATION_SECONDS:
+                        return jsonify({'success': False,
+                                        'message': f'Duration must be between 1 and {MAX_DURATION_SECONDS} seconds'}), 400
+
+                if not db.update_valve_cron(valve_id, cron_expression, enabled):
                     return jsonify({
                         'success': False,
                         'message': f'Failed to set cron schedule for valve {valve_id}'
                     }), 500
-    
+                if duration is not None:
+                    db.update_valve_cron_duration(valve_id, duration)
+
+                # Sync the running scheduler (adds, replaces or removes the job)
+                from src.main_service import main_service
+                if main_service.valve_scheduler:
+                    main_service.valve_scheduler.reload_valve(valve_id)
+                logger.info(f"Cron set for valve {valve_id}: '{cron_expression}' enabled={enabled}")
+
+                state = "enabled" if enabled else "saved (disabled)"
+                return jsonify({
+                    'success': True,
+                    'message': f'Cron schedule {state} for valve {valve_id}'
+                }), 200
+
             except Exception as e:
                 logger.error(f"Error setting valve {valve_id} cron: {e}")
                 return jsonify({
@@ -465,6 +441,31 @@ class APIService:
                     'message': f'Error setting valve cron: {str(e)}'
                 }), 500
     
+        # Route for clearing (deleting) a valve cron schedule
+        @self.app.route('/api/valves/<int:valve_id>/cron', methods=['DELETE'])
+        def delete_valve_cron(valve_id):
+            """Clear and disable the cron schedule of a valve."""
+            try:
+                from src.database import Database
+                db = Database()
+
+                if valve_id not in [1, 2]:
+                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+
+                if not db.update_valve_cron(valve_id, '', False):
+                    return jsonify({'success': False,
+                                    'message': f'Failed to clear schedule for valve {valve_id}'}), 500
+
+                from src.main_service import main_service
+                if main_service.valve_scheduler:
+                    main_service.valve_scheduler.reload_valve(valve_id)
+
+                return jsonify({'success': True,
+                                'message': f'Schedule cleared for valve {valve_id}'}), 200
+            except Exception as e:
+                logger.error(f"Error clearing valve {valve_id} cron: {e}")
+                return jsonify({'success': False, 'message': f'Error clearing valve cron: {str(e)}'}), 500
+
         # Route for getting valve usage statistics
         @self.app.route('/api/valves/usage', methods=['GET'])
         def get_valve_usage():
@@ -533,42 +534,18 @@ class APIService:
                 next_runs = []
                 for cron in all_crons:
                     if cron['enabled'] and cron['cron_expression']:
-                        # Calculate the next 5 runs for this valve
-                        valve_next_runs = []
-                        cron_expression = cron['cron_expression']
-                        
-                        # Import required modules for cron parsing
-                        from apscheduler.triggers.cron import CronTrigger
-                        from datetime import datetime
-                        
-                        # Create a CronTrigger from the cron expression
-                        trigger = CronTrigger.from_crontab(cron_expression)
-                        
-                        # Get the current time
-                        current_time = datetime.now()
-                        
-                        # Calculate the next 5 run times
-                        for i in range(5):
-                            try:
-                                # Get next run time after current time
-                                next_run = trigger.get_next_fire_time(None, current_time)
-                                if next_run:
-                                    valve_next_runs.append(next_run.isoformat())
-                                    # Set current_time to the next run time for the next iteration
-                                    # Add 1 minute to current_time to avoid same time issues
-                                    from datetime import timedelta
-                                    current_time = next_run + timedelta(minutes=1)
-                                else:
-                                    break
-                            except Exception as e:
-                                logger.error(f"Error calculating next run for valve {cron['valve_id']}: {e}")
-                                break
-                        
+                        # Same trigger construction as the scheduler, so the
+                        # displayed days match the real executions
+                        try:
+                            runs = [r.isoformat() for r in next_run_times(cron['cron_expression'], 5)]
+                        except CronValidationError as e:
+                            logger.error(f"Invalid cron for valve {cron['valve_id']}: {e}")
+                            runs = []
                         next_runs.append({
                             'valve_id': cron['valve_id'],
-                            'next_runs': valve_next_runs
+                            'next_runs': runs
                         })
-    
+
                 return jsonify({
                     'next_runs': next_runs
                 }), 200

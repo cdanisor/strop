@@ -10,7 +10,9 @@ import sys
 import json
 
 PORT = 8000
-DIRECTORY = "ui"
+# Resolve paths from this file so the server works from any working directory
+DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(DIRECTORY)
 
 # Ensure the UI directory exists
 if not os.path.exists(DIRECTORY):
@@ -20,7 +22,7 @@ if not os.path.exists(DIRECTORY):
 # Try to load configuration from root config.json
 config = {}
 try:
-    with open('config.json', 'r') as f:
+    with open(os.path.join(PROJECT_ROOT, 'config.json'), 'r') as f:
         config = json.load(f)
 except Exception as e:
     print(f"Warning: Could not load config.json: {e}")
@@ -46,14 +48,14 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
             filepath = os.path.join(DIRECTORY, 'index.html')
             if os.path.exists(filepath):
                 try:
-                    with open(filepath, 'r') as f:
+                    with open(filepath, 'r', encoding='utf-8') as f:
                         content = f.read()
                 except UnicodeDecodeError:
                     # If we can't read as text, serve as binary
                     with open(filepath, 'rb') as f:
                         content = f.read()
                     self.send_response(200)
-                    self.send_header('Content-type', 'text/html')
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
                     self.end_headers()
                     self.wfile.write(content)
                     return
@@ -71,9 +73,9 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
                
                 # Send response
                 self.send_response(200)
-                self.send_header('Content-type', 'text/html')
+                self.send_header('Content-type', 'text/html; charset=utf-8')
                 self.end_headers()
-                self.wfile.write(content.encode())
+                self.wfile.write(content.encode('utf-8'))
                 return
         # For all other requests, serve normally
         super().do_GET()

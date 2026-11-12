@@ -171,7 +171,7 @@ class WeatherService:
       
                 # Get rain data
                 rain_data = item.get('rain', {})
-                rain_3h = rain_data.get('3h', 0)  # Rain volume for last 3 hours, mm
+                rain_3h = rain_data.get('3h', 0) or 0  # Rain volume for last 3 hours, mm
                 
                 # Initialize daily data if not exists
                 if date_key not in daily_data:
@@ -181,9 +181,11 @@ class WeatherService:
                         'max_temp': temp_max if temp_max is not None else temp,
                         'weather': [],
                         'total_humidity': 0,
+                        'humidity_count': 0,
                         'total_pressure': 0,
-                        'count': 0,
+                        'pressure_count': 0,
                         'total_temp': 0,
+                        'temp_count': 0,
                         'total_rain': 0
                     }
                 else:
@@ -193,15 +195,17 @@ class WeatherService:
                     if temp_max is not None:
                         daily_data[date_key]['max_temp'] = max(daily_data[date_key]['max_temp'], temp_max)
       
-                # Add to totals for averaging
+                # Add to totals for averaging (one counter per metric; a shared
+                # counter incremented twice per slot halved every average)
                 if humidity is not None:
                     daily_data[date_key]['total_humidity'] += humidity
-                    daily_data[date_key]['count'] += 1
+                    daily_data[date_key]['humidity_count'] += 1
                 if pressure is not None:
                     daily_data[date_key]['total_pressure'] += pressure
-                    daily_data[date_key]['count'] += 1
+                    daily_data[date_key]['pressure_count'] += 1
                 if temp is not None:
                     daily_data[date_key]['total_temp'] += temp
+                    daily_data[date_key]['temp_count'] += 1
                     
                 # Add rain data
                 daily_data[date_key]['total_rain'] += rain_3h
@@ -217,9 +221,8 @@ class WeatherService:
             # Calculate averages and convert to list
             result = []
             for date_key, data in daily_data.items():
-                avg_humidity = data['total_humidity'] // data['count'] if data['count'] > 0 else 0
-                avg_pressure = data['total_pressure'] // data['count'] if data['count'] > 0 else 0
-                avg_temp = data['total_temp'] / data['count'] if data['count'] > 0 else data['min_temp']
+                avg_humidity = round(data['total_humidity'] / data['humidity_count']) if data['humidity_count'] else 0
+                avg_pressure = round(data['total_pressure'] / data['pressure_count']) if data['pressure_count'] else 0
         
                 result.append({
                     'date': data['date'],

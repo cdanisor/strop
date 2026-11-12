@@ -2,6 +2,7 @@
 Database Module for Raspberry Pi Irrigation System
 This module handles database operations for storing valve logs and other system data.
 """
+import os
 import sqlite3
 import logging
 from datetime import datetime
@@ -11,10 +12,18 @@ from typing import List, Dict, Any, Optional
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Project root (one level above src/) so the DB location does not depend on the CWD
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DB_PATH = os.environ.get("STROP_DB_PATH", os.path.join(PROJECT_ROOT, "irrigation_system.db"))
+
+# A valve can never be open longer than this (see GPIOControlService); used to
+# bound durations of records left "Opened" by a crash.
+MAX_VALVE_DURATION_SECONDS = 3600
+
 class Database:
     """Database class for managing irrigation system data."""
     
-    def __init__(self, db_path: str = "irrigation_system.db"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         """
         Initialize database connection and create tables if they don't exist.
         
@@ -31,7 +40,7 @@ class Database:
         Returns:
             sqlite3.Connection: Database connection object
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row  # Enable named column access
         return conn
     
@@ -83,6 +92,18 @@ class Database:
             except sqlite3.OperationalError:
                 # Column doesn't exist, add it
                 cursor.execute('ALTER TABLE weather_data ADD COLUMN total_rain REAL DEFAULT 0')
+
+            # One-off data fix: an averaging bug stored humidity and pressure at half
+            # their real value. Real air pressure is never below 800 hPa, so such rows
+            # are the affected ones; once doubled they no longer match (idempotent).
+            cursor.execute('''
+                UPDATE weather_data
+                SET average_humidity = average_humidity * 2,
+                    average_pressure = average_pressure * 2
+                WHERE average_pressure > 0 AND average_pressure < 800
+            ''')
+            if cursor.rowcount:
+                logger.info(f"Corrected halved humidity/pressure in {cursor.rowcount} weather rows")
             
             # Create valve_cron table
             cursor.execute('''
@@ -129,7 +150,7 @@ class Database:
             logger.error(f"Failed to initialize database: {e}")
             raise
     
-    def insert_valve_log(self, valve_id: int, status: str, duration: Optional[int] = None, start_time: Optional[datetime] = None) -> bool:
+    def insert_valve_log(self, valve_id: int, status: str, duration: Optional[int] = None, start_time: Optional[datetime] = None) -> Optional[int]:
         """
         Insert a new valve operation log entry.
         
@@ -140,7 +161,7 @@ class Database:
             start_time (datetime, optional): Start time of the operation
     
         Returns:
-            bool: True if insertion was successful, False otherwise
+            int: ID of the new log row (truthy), or None if insertion failed
         """
         try:
             conn = self.get_connection()
@@ -150,15 +171,16 @@ class Database:
                 INSERT INTO valve_logs (valve_id, status, timestamp, duration, start_time)
                 VALUES (?, ?, ?, ?, ?)
             ''', (valve_id, status, datetime.now(), duration, start_time))
+            log_id = cursor.lastrowid
     
             conn.commit()
             conn.close()
-            logger.info(f"Valve log inserted: valve_id={valve_id}, status={status}, duration={duration}")
-            return True
+            logger.info(f"Valve log inserted: id={log_id}, valve_id={valve_id}, status={status}, duration={duration}")
+            return log_id
     
         except Exception as e:
             logger.error(f"Failed to insert valve log: {e}")
-            return False
+            return None
     
     def update_valve_log_status(self, log_id: int, duration: int, status: str) -> bool:
         """
@@ -398,6 +420,16 @@ class Database:
             logger.error(f"Failed to retrieve daily weather data: {e}")
             return []
     
+    def get_weather_forecast_data(self) -> List[Dict[str, Any]]:
+        """
+        Retrieve the daily forecast from today onwards.
+
+        Returns:
+            List[Dict[str, Any]]: Daily weather rows with date >= today, ordered by date
+        """
+        today = datetime.now().date().isoformat()
+        return [row for row in self.get_all_daily_weather_data() if row['date'] >= today]
+
     def get_weather_data_history(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Retrieve weather data history.
@@ -842,7 +874,10 @@ class Database:
                     import datetime
                     start_time = datetime.datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
                     end_time = datetime.datetime.now()
+                    # The real end time is unknown (crash / power loss); the valve can
+                    # never have been open longer than the safety limit.
                     duration = int((end_time - start_time).total_seconds())
+                    duration = max(0, min(duration, MAX_VALVE_DURATION_SECONDS))
                     
                     # Update the record with "Terminated" status and duration
                     cursor.execute('''

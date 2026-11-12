@@ -158,7 +158,10 @@ class CronBuilder {
         if (hourInput) hourInput.value = '';
         
         const dayOfWeekSelect = container.querySelector(`#${uniquePrefix}day-of-week-select`);
-        if (dayOfWeekSelect) dayOfWeekSelect.value = '*';
+        if (dayOfWeekSelect) {
+            // A multiple select has no '*' option: deselect every day explicitly
+            Array.from(dayOfWeekSelect.options).forEach(option => { option.selected = false; });
+        }
         
         // Reset expression
         this.cronParts = {
@@ -203,7 +206,7 @@ class CronBuilder {
             const dayOfWeekSelect = container.querySelector(`#${uniquePrefix}day-of-week-select`);
             if (dayOfWeekSelect) {
                 if (this.cronParts.dayOfWeek === '*') {
-                    dayOfWeekSelect.value = '*';
+                    Array.from(dayOfWeekSelect.options).forEach(option => { option.selected = false; });
                 } else {
                     // For multiple select, we need to set the selected values
                     const selectedValues = this.cronParts.dayOfWeek.split(',');
@@ -225,6 +228,22 @@ class CronBuilder {
             };
             this.updateExpression();
         }
+    }
+
+    // Returns an error message if the schedule cannot be saved, otherwise null
+    validate() {
+        const minute = (this.cronParts.minute || '').trim();
+        const hour = (this.cronParts.hour || '').trim();
+        if (!minute || !hour) {
+            return 'Please fill in both Hour and Minute';
+        }
+        if (!/^\d{1,2}(,\d{1,2})*$/.test(minute)) {
+            return 'Minute must be a fixed value, e.g. 0 or 15,45';
+        }
+        if (!/^[\d,\-\/\*]+$/.test(hour)) {
+            return 'Hour contains invalid characters';
+        }
+        return null;
     }
 
     // Method to get the current expression

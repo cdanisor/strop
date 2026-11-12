@@ -1,399 +1,210 @@
 """
 Valve Cron Scheduler for Raspberry Pi Irrigation System
 This service handles scheduling valve activations based on cron expressions using APScheduler.
+
+The database is the single source of truth:
+  * reload_valve()/reload_all() sync the in-memory jobs with the DB, removing
+    jobs for schedules that are disabled or cleared;
+  * every scheduled run re-reads the schedule from the DB right before opening
+    a valve, so a disabled schedule never opens a valve even if a stale job
+    were somehow left behind.
 """
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
 import logging
+import threading
 from datetime import datetime
-from typing import Dict, Any
-import time
+from typing import Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from src.services.cron_utils import build_trigger, next_run_times, CronValidationError
+
 logger = logging.getLogger(__name__)
+
+VALVE_IDS = (1, 2)
+DEFAULT_DURATION = 60  # seconds, used when a schedule has no duration stored
+
 
 class ValveCronScheduler:
     """Scheduler for running valve cron schedules using APScheduler."""
-    
+
     def __init__(self):
-        """Initialize the valve cron scheduler."""
-        self.scheduler = BackgroundScheduler()
+        self.scheduler = BackgroundScheduler(job_defaults={
+            'coalesce': True,          # Run missed jobs once
+            'max_instances': 1,        # Only one instance of each job at a time
+            'misfire_grace_time': 60,  # Allow 60 seconds grace for missed jobs
+        })
         self.is_running = False
-        self.valve_cron_jobs = {}  # Store job IDs for each valve
-        self.db = None  # Database instance will be set later
-        self.main_service = None  # Main service instance will be set later
-        self._setup_scheduler()
-    
-    def _setup_scheduler(self):
-        """Setup the scheduler with basic configuration."""
-        # Configure the scheduler with a more robust configuration
-        self.scheduler.configure(
-            job_defaults={
-                'coalesce': True,  # Run missed jobs once
-                'max_instances': 1,     # Only one instance of each job at a time
-                'misfire_grace_time': 30  # Allow 30 seconds grace for missed jobs
-            }
-        )
-    
+        self.db = None
+        self.main_service = None
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _job_id(valve_id: int) -> str:
+        return f"valve_{valve_id}_cron"
+
+    # ------------------------------------------------------------------ lifecycle
     def start(self, db, main_service):
         """Start the scheduler with database and main service instances."""
-        if not self.is_running:
-            # Double-check that scheduler is not already started
-            try:
-                # Check if scheduler is already running
-                if hasattr(self.scheduler, 'running') and self.scheduler.running:
-                    logger.info("Scheduler already running")
-                    return
-            except Exception:
-                # If we can't check, proceed with starting
-                pass
-    	
+        with self._lock:
+            if self.is_running:
+                logger.info("Valve cron scheduler already running")
+                return
             self.db = db
             self.main_service = main_service
+            self.scheduler.start()
             self.is_running = True
-            self._load_existing_crons()
-            # Additional safeguard - make sure we're not in a shutdown state
-            try:
-                self.scheduler.start()
-                logger.info("Valve cron scheduler started with APScheduler")
-            except Exception as e:
-                # If we get an error during start, make sure we don't leave the state inconsistent
-                self.is_running = False
-                logger.error(f"Failed to start scheduler: {e}")
-                raise
-        else:
-            logger.info("Valve cron scheduler already running")
-    
+            self.reload_all()
+            logger.info("Valve cron scheduler started")
+
     def stop(self):
         """Stop the scheduler."""
-        if self.is_running:
+        with self._lock:
+            if not self.is_running:
+                return
+            self.is_running = False
             try:
-                # Remove all jobs first
                 self.scheduler.remove_all_jobs()
-                # Shutdown the scheduler with wait=True to ensure all jobs are completed
-                self.scheduler.shutdown(wait=True)
-                self.is_running = False
-                logger.info("Valve cron scheduler stopped")
+                self.scheduler.shutdown(wait=False)
             except Exception as e:
-                logger.error(f"Error stopping scheduler: {e}")
-                # Even if there's an error, we should still set is_running to False
-                self.is_running = False
-                # Additional safeguard - if we get a shutdown error, make sure we don't leave
-                # the scheduler in a bad state
-                try:
-                    # Try to force shutdown if needed
-                    self.scheduler.shutdown(wait=False)
-                except:
-                    # If we can't shutdown cleanly, that's okay - we've already set is_running to False
-                    pass
-    
-    def _load_existing_crons(self):
-        """Load existing cron schedules from database."""
-        try:
-            if self.db is None:
-                logger.warning("Database not initialized, cannot load existing crons")
-                return
-    
-            # Get all enabled valve cron schedules
-            crons = self.db.get_all_valve_crons()
-            logger.info(f"Loading {len(crons)} existing valve cron schedules")
-       
-            if not crons:
-                logger.info("No cron schedules found in database")
-            else:
-                for cron in crons:
-                    if cron['enabled'] and cron['cron_expression']:
-                        self._add_cron_job(cron)
-                    else:
-                        logger.info(f"Skipping disabled cron for valve {cron['valve_id']}")
-       
-        except Exception as e:
-            logger.error(f"Error loading existing crons: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _add_cron_job(self, cron_data: Dict[str, Any]):
-        """Add a cron job for a valve."""
-        try:
-            # Check if scheduler is still running before adding new jobs
-            if not self.is_running:
-                logger.warning("Scheduler not running, cannot add new cron job")
-                return
-    	
-            valve_id = cron_data['valve_id']
-            cron_expression = cron_data['cron_expression']
-            duration = cron_data['duration'] if cron_data['duration'] is not None else 60  # Default 60 seconds if not set
-            job_id = f"valve_{valve_id}_cron"
-        
-            # Remove existing job if it exists - handle the case where job doesn't exist
-            if job_id in self.valve_cron_jobs:
-                try:
-                    self.scheduler.remove_job(job_id)
-                    logger.info(f"Removed existing job for valve {valve_id} before adding new one")
-                except Exception as e:
-                    logger.warning(f"Could not remove existing job {job_id}: {e}")
-                    # Continue anyway, as we're about to add a new one anyway
-     
-            # Add new job with cron expression
-            # APScheduler expects cron parameters directly
-            cron_params = self._parse_cron_expression(cron_expression)
-            # Double-check that scheduler is still running before adding job
-            if not self.is_running:
-                logger.warning("Scheduler not running, skipping job addition for valve {valve_id}")
-                return
-     			
-            # Additional safeguard - try to catch any shutdown state issues
-            try:
-                self.scheduler.add_job(
-                    func=self._run_valve_activation,
-                    trigger="cron",
-                    id=job_id,
-                    kwargs={
-                        'valve_id': valve_id,
-                        'duration': duration
-                    },
-                    **cron_params
-                )
-            except Exception as e:
-                # If we get an error during job addition, check if it's related to shutdown
-                error_str = str(e)
-                if "shutdown" in error_str.lower() or "cannot schedule new futures" in error_str:
-                    logger.warning(f"Job addition skipped due to scheduler shutdown: {e}")
-                    return
-                else:
-                    raise  # Re-raise if it's not a shutdown-related error
-        
-            self.valve_cron_jobs[job_id] = {
-                'valve_id': valve_id,
-                'cron_expression': cron_expression,
-                'duration': duration
-            }
-        
-            logger.info(f"Added cron job for valve {valve_id}: {cron_expression} with duration {duration}s")
-        
-        except Exception as e:
-            logger.error(f"Error adding cron job for valve {cron_data['valve_id']}: {e}")
-            # Even if there's an error, we should still update the database with the last run date
-            # This ensures that the system can continue working properly
-            try:
-                # Set last_run to current time to prevent infinite errors
-                current_time = datetime.now().isoformat()
-                self._update_cron_run_dates(valve_id, current_time, None)
-            except Exception as e2:
-                logger.error(f"Error updating run dates after cron job error: {e2}")
-    
-    def _parse_cron_expression(self, cron_expression: str) -> dict:
+                logger.error(f"Error stopping valve scheduler: {e}")
+            logger.info("Valve cron scheduler stopped")
+
+    # ------------------------------------------------------------------ syncing
+    def reload_all(self):
+        """Sync jobs for all valves with the database."""
+        for valve_id in VALVE_IDS:
+            self.reload_valve(valve_id)
+
+    # Backwards compatible name
+    _load_existing_crons = reload_all
+
+    def reload_valve(self, valve_id: int) -> bool:
         """
-        Parse a cron expression and return parameters for APScheduler.
-        
-        Supports standard cron expressions (minute, hour, day, month, day_of_week).
+        Sync the job of one valve with its schedule in the database.
+
+        Returns True if an active job exists for the valve afterwards.
         """
-        try:
-            # Split the cron expression into its components
-            parts = cron_expression.strip().split()
-       
-            # Standard cron format: minute hour day month day_of_week
-            # If we have 5 parts, it's standard cron
-            if len(parts) == 5:
-                minute, hour, day, month, day_of_week = parts
-    
-                # Return parameters for APScheduler
-                return {
-                    'minute': minute,
-                    'hour': hour,
-                    'day': day,
-                    'month': month,
-                    'day_of_week': day_of_week
-                }
-            else:
-                # If it's not standard cron, we can't parse it properly
-                # Return empty dict so APScheduler can handle it
-                logger.warning(f"Non-standard cron expression: {cron_expression}")
-                return {}
-        except Exception as e:
-            logger.error(f"Error parsing cron expression '{cron_expression}': {e}")
-            return {}
-    
-    def _run_valve_activation(self, valve_id: int, duration: int):
-        """Run the valve activation for a specific valve with duration."""
-        # Additional safeguard - check if scheduler is in a shutdown state
-        try:
-            # Check if scheduler is still running before proceeding
-            if not self.is_running:
-                logger.warning(f"Scheduler not running, skipping valve activation for valve {valve_id}")
-                return
-    
-            logger.info(f"Running scheduled activation for valve {valve_id} for {duration} seconds")
-    
-            # Get current time for run tracking
-            current_time = datetime.now()
-            last_run = current_time.isoformat()
-    
-            # Update last run date in database before execution
-            self._update_cron_run_dates(valve_id, last_run, None)
-    
-            if self.main_service is None:
-                logger.error("Main service not initialized, cannot activate valve")
-                return
-    
-            # Activate the valve with specified duration
-            success = self.main_service.activate_valve(valve_id, duration)
-    
-            if success:
-                logger.info(f"Successfully activated valve {valve_id} for {duration} seconds")
-                # Calculate next run date based on cron expression
-                next_run = self._calculate_next_run_date(valve_id, last_run)
-                self._update_cron_run_dates(valve_id, last_run, next_run)
-            else:
-                logger.error(f"Failed to activate valve {valve_id} for {duration} seconds")
-                # Even if activation failed, calculate next run date
-                next_run = self._calculate_next_run_date(valve_id, last_run)
-                self._update_cron_run_dates(valve_id, last_run, next_run)
-    
-        except Exception as e:
-            # This is a critical fix - we need to catch the specific RuntimeError about shutdown
-            # The error might be coming from the APScheduler itself, not our code
-            error_str = str(e)
-            if "cannot schedule new futures after shutdown" in error_str or "shutdown" in error_str.lower():
-                logger.warning(f"Job execution skipped due to scheduler shutdown: {e}")
-                return
-            else:
-                logger.error(f"Error in valve activation: {e}")
-                # Even if there's an error, update the last run date to prevent infinite loops
-                try:
-                    last_run = datetime.now().isoformat()
-                    self._update_cron_run_dates(valve_id, last_run, None)
-                except Exception as e2:
-                    logger.error(f"Error updating run dates after activation error: {e2}")
-                    # If we can't even update the database, we should still try to avoid infinite loops
-                    # by checking if the scheduler is still running
-                    if not self.is_running:
-                        logger.warning("Scheduler is not running, skipping further processing")
-                        return
-    
-    def add_valve_cron(self, valve_id: int, cron_expression: str, duration: int = 60, enabled: bool = True):
-        """Add a new cron schedule for a valve."""
-        try:
-            # Check if scheduler is still running before adding new jobs
-            if not self.is_running:
-                logger.warning("Scheduler not running, cannot add new cron schedule")
+        with self._lock:
+            if not self.is_running or self.db is None:
+                logger.warning("Scheduler not running, cannot reload valve %s", valve_id)
                 return False
 
-            # First, save to database
-            success = self.db.update_valve_cron(valve_id, cron_expression, enabled)
-            if not success:
-                logger.error(f"Failed to save cron schedule for valve {valve_id} in database")
+            self._remove_job(valve_id)
+
+            cron = self.db.get_valve_cron(valve_id)
+            if not cron or not cron.get('enabled') or not cron.get('cron_expression'):
+                logger.info("Valve %s: schedule disabled or empty, no job scheduled", valve_id)
+                self._update_next_run(valve_id, None)
                 return False
 
-            # Update the duration in database if provided
-            if duration is not None:
-                self.db.update_valve_cron_duration(valve_id, duration)
+            try:
+                trigger = build_trigger(cron['cron_expression'])
+            except CronValidationError as e:
+                logger.error("Valve %s: invalid cron '%s' not scheduled: %s",
+                             valve_id, cron['cron_expression'], e)
+                self._update_next_run(valve_id, None)
+                return False
 
-            # If we're updating an existing cron, disable the current job first
-            job_id = f"valve_{valve_id}_cron"
-            if job_id in self.valve_cron_jobs:
-                # Remove existing job
-                try:
-                    self.scheduler.remove_job(job_id)
-                    logger.info(f"Removed existing cron job for valve {valve_id} before adding new one")
-                    # Remove from tracking
-                    del self.valve_cron_jobs[job_id]
-                except Exception as e:
-                    logger.warning(f"Could not remove existing job {job_id}: {e}")
-                    # Continue anyway, as we're about to add a new one anyway
-
-            # Add to scheduler if enabled and valid
-            if enabled and cron_expression:
-                cron_data = {
-                    'valve_id': valve_id,
-                    'cron_expression': cron_expression,
-                    'duration': duration,
-                    'enabled': enabled
-                }
-                self._add_cron_job(cron_data)
-                logger.info(f"Added new cron schedule for valve {valve_id}: {cron_expression} with duration {duration}s")
-                return True
-            else:
-                logger.info(f"Skipped adding cron schedule for valve {valve_id} (disabled or invalid)")
-                return True  # Not an error, just not added
-
-        except Exception as e:
-            logger.error(f"Error adding valve cron schedule: {e}")
-            return False
-    
-    def remove_valve_cron(self, valve_id: int):
-        """Remove a cron schedule for a valve."""
-        try:
-            # Remove from scheduler
-            job_id = f"valve_{valve_id}_cron"
-            if job_id in self.valve_cron_jobs:
-                try:
-                    self.scheduler.remove_job(job_id)
-                    del self.valve_cron_jobs[job_id]
-                    logger.info(f"Removed cron job for valve {valve_id} from scheduler")
-                except Exception as e:
-                    logger.warning(f"Could not remove job {job_id}: {e}")
-                    # Continue anyway, as we're removing it anyway
-   
-            # Remove from database (set enabled to False)
-            success = self.db.update_valve_cron(valve_id, "", False)
-            if success:
-                logger.info(f"Disabled cron schedule for valve {valve_id} in database")
-            else:
-                logger.warning(f"Failed to disable cron schedule for valve {valve_id} in database")
-   
+            job = self.scheduler.add_job(
+                func=self._run_valve_activation,
+                trigger=trigger,
+                id=self._job_id(valve_id),
+                kwargs={'valve_id': valve_id},
+                replace_existing=True,
+            )
+            next_run = job.next_run_time.isoformat() if job.next_run_time else None
+            self._update_next_run(valve_id, next_run)
+            logger.info("Valve %s: scheduled '%s' (next run %s)",
+                        valve_id, cron['cron_expression'], next_run)
             return True
-        except Exception as e:
-            logger.error(f"Error removing valve cron schedule: {e}")
-            return False
-    
-    def _calculate_next_run_date(self, valve_id: int, last_run: str) -> str:
-        """Calculate the next run date based on the cron expression for a valve."""
-        try:
-            # Get the cron expression for this valve
-            cron_data = self.db.get_valve_cron(valve_id)
-            if not cron_data or not cron_data['cron_expression']:
-                logger.warning(f"No cron expression found for valve {valve_id}")
-                return None
-     
-            cron_expression = cron_data['cron_expression']
-     
-            # Import required modules for cron parsing
-            from apscheduler.triggers.cron import CronTrigger
-            from datetime import datetime
-     
-            # Create a CronTrigger from the cron expression
-            trigger = CronTrigger.from_crontab(cron_expression)
-     
-            # Get the last run time (convert from ISO format)
-            last_run_time = datetime.fromisoformat(last_run.replace('Z', '+00:00'))
-     
-            # Calculate the next run time after the last run
-            # The correct signature is get_next_fire_time(previous_fire_time, now)
-            next_run_time = trigger.get_next_fire_time(last_run_time, last_run_time)
-     
-            if next_run_time:
-                return next_run_time.isoformat()
-            else:
-                logger.warning(f"Could not calculate next run time for valve {valve_id}")
-                return None
-        except Exception as e:
-            logger.error(f"Error calculating next run date for valve {valve_id}: {e}")
-            return None
 
-    def _update_cron_run_dates(self, valve_id: int, last_run: str, next_run: str):
-        """Update last run and next run dates in database."""
+    def _remove_job(self, valve_id: int):
         try:
-            # Update the database with last run and next run dates
+            self.scheduler.remove_job(self._job_id(valve_id))
+            logger.info("Valve %s: removed existing job", valve_id)
+        except JobLookupError:
+            pass
+
+    def has_job(self, valve_id: int) -> bool:
+        return self.scheduler.get_job(self._job_id(valve_id)) is not None
+
+    # ------------------------------------------------------------------ API helpers
+    def add_valve_cron(self, valve_id: int, cron_expression: str, duration: int = DEFAULT_DURATION,
+                       enabled: bool = True) -> bool:
+        """Validate, save and schedule a cron for a valve."""
+        build_trigger(cron_expression)  # raises CronValidationError if invalid
+        if not self.db.update_valve_cron(valve_id, cron_expression, enabled):
+            return False
+        if duration is not None:
+            self.db.update_valve_cron_duration(valve_id, duration)
+        self.reload_valve(valve_id)
+        return True
+
+    def remove_valve_cron(self, valve_id: int) -> bool:
+        """Clear and disable the cron schedule of a valve."""
+        success = self.db.update_valve_cron(valve_id, "", False)
+        self.reload_valve(valve_id)
+        return success
+
+    # ------------------------------------------------------------------ execution
+    def _run_valve_activation(self, valve_id: int):
+        """Scheduled job: open the valve for the duration stored in the database."""
+        if not self.is_running or self.main_service is None:
+            logger.warning("Scheduler not running, skipping valve %s activation", valve_id)
+            return
+        try:
+            cron = self.db.get_valve_cron(valve_id)
+            if not cron or not cron.get('enabled') or not cron.get('cron_expression'):
+                # Safety net: never open a valve for a disabled schedule
+                logger.warning("Valve %s: schedule is disabled in DB, skipping and removing job", valve_id)
+                self._remove_job(valve_id)
+                self._update_next_run(valve_id, None)
+                return
+
+            duration = cron.get('duration') or DEFAULT_DURATION
+            last_run = datetime.now().isoformat()
+
+            if self.main_service.get_valve_status(valve_id):
+                logger.warning("Valve %s already open, skipping scheduled activation", valve_id)
+            else:
+                logger.info("Running scheduled activation for valve %s for %s seconds", valve_id, duration)
+                if not self.main_service.activate_valve(valve_id, duration):
+                    logger.error("Failed to activate valve %s", valve_id)
+
+            self._update_cron_run_dates(valve_id, last_run, self._calculate_next_run_date(valve_id))
+        except Exception as e:
+            logger.exception("Error in scheduled activation of valve %s: %s", valve_id, e)
+
+    def _calculate_next_run_date(self, valve_id: int) -> Optional[str]:
+        """Next fire time of the valve's job, as ISO string."""
+        job = self.scheduler.get_job(self._job_id(valve_id))
+        if job is not None and job.next_run_time:
+            return job.next_run_time.isoformat()
+        cron = self.db.get_valve_cron(valve_id)
+        if cron and cron.get('enabled') and cron.get('cron_expression'):
+            try:
+                runs = next_run_times(cron['cron_expression'], 1)
+                return runs[0].isoformat() if runs else None
+            except CronValidationError:
+                return None
+        return None
+
+    # ------------------------------------------------------------------ DB helpers
+    def _update_cron_run_dates(self, valve_id: int, last_run: Optional[str], next_run: Optional[str]):
+        try:
             conn = self.db.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE valve_cron
-                SET last_run = ?, next_run = ?
-                WHERE valve_id = ?
-            ''', (last_run, next_run, valve_id))
+            conn.execute('UPDATE valve_cron SET last_run = ?, next_run = ? WHERE valve_id = ?',
+                         (last_run, next_run, valve_id))
             conn.commit()
             conn.close()
-            logger.info(f"Updated run dates for valve {valve_id}: last_run={last_run}, next_run={next_run}")
         except Exception as e:
             logger.error(f"Error updating run dates for valve {valve_id}: {e}")
+
+    def _update_next_run(self, valve_id: int, next_run: Optional[str]):
+        try:
+            conn = self.db.get_connection()
+            conn.execute('UPDATE valve_cron SET next_run = ? WHERE valve_id = ?', (next_run, valve_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error updating next run for valve {valve_id}: {e}")
