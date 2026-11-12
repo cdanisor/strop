@@ -417,9 +417,11 @@
         z.adjust.classList.toggle('reduced', !plan.skip && plan.percent < 100);
         z.adjSet.textContent = fmtDuration(plan.base_duration);
         z.adjWhen.textContent = t('zone.adjusted', { day: relativeDay(next) });
-        z.adjFinal.textContent = plan.skip ? t('adj.skip') : fmtDuration(plan.duration);
-        z.adjPct.textContent = plan.percent + '%';
-        z.adjFill.style.width = Math.max(0, Math.min(100, plan.percent)) + '%';
+        var pending = plan.reason_key === 'pending';
+        z.adjust.classList.toggle('pending', pending);
+        z.adjFinal.textContent = plan.skip ? t('adj.skip') : pending ? t('adj.upTo', { dur: fmtDuration(plan.duration) }) : fmtDuration(plan.duration);
+        z.adjPct.textContent = pending ? '—' : plan.percent + '%';
+        z.adjFill.style.width = pending ? '0%' : Math.max(0, Math.min(100, plan.percent)) + '%';
         z.adjReason.textContent = planReason(plan);
     }
 
@@ -661,7 +663,9 @@
                 title = t('ov.next', { day: phraseDay(u.at), time: hhmm(u.at) });
                 sub = zoneName(u.id) + ' · ' + (u.plan.percent < 100
                     ? t('ov.of', { dur: fmtDuration(u.plan.duration), base: fmtDuration(u.plan.base_duration), pct: u.plan.percent })
-                    : fmtDuration(u.plan.duration)) + (skipNote ? ' · ' + skipNote : '');
+                    : u.plan.reason_key === 'pending'
+                        ? t('adj.upTo', { dur: fmtDuration(u.plan.duration) }) + ' · ' + t('r.short.pending')
+                        : fmtDuration(u.plan.duration)) + (skipNote ? ' · ' + skipNote : '');
             } else if (upcoming.length) {
                 title = t('ov.noneNeeded');
                 sub = skipNote;
@@ -749,7 +753,8 @@
             (planned[key] || []).forEach(function (p) {
                 if (i < 0 || p.at < new Date()) return;
                 var label = p.plan.skip ? t('w.skip') : minutesShort(p.plan.duration);
-                var title = t('w.tagTitle', { base: fmtDuration(p.plan.base_duration), pct: p.plan.percent, reason: planReason(p.plan) });
+                var title = p.plan.reason_key === 'pending' ? planReason(p.plan)
+                    : t('w.tagTitle', { base: fmtDuration(p.plan.base_duration), pct: p.plan.percent, reason: planReason(p.plan) });
                 html += '<span class="tag tag-plan' + (p.plan.skip ? ' tag-skip' : '') + '" title="' + escapeHtml(title) + '">Z' +
                     p.id + ' ' + hhmm(p.at) + ' · ' + escapeHtml(label) + '</span>';
             });
@@ -783,7 +788,7 @@
         $('#adjust-note').textContent = t(hasRun ? 'adj.forNext' : 'adj.ifWatering', { day: phraseDay(runDay) }) +
             (a.enabled ? '' : t('adj.disabled'));
 
-        $('#adjust-big').textContent = a.skip ? t('adj.skip') : a.percent + '%';
+        $('#adjust-big').textContent = a.skip ? t('adj.skip') : a.reason_key === 'pending' ? '—' : a.percent + '%';
         $('.adjust-of').textContent = a.skip ? t('adj.runSkipped') : t('adj.ofProgrammed');
         $('#adjust-panel').classList.toggle('skip', !!a.skip);
         $('#adjust-verdict').textContent = reasonText(a.reason_key, a.reason_args, a.reason);

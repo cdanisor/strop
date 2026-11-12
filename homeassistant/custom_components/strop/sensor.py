@@ -119,7 +119,8 @@ class StropAdjustment(StropEntity, SensorEntity):
     @property
     def native_value(self) -> int | None:
         adj = (self.coordinator.data or {}).get("adjustment") or {}
-        return adj.get("percent")
+        # Unknown while the next run is further away than the forecast reaches
+        return None if adj.get("reason_key") == "pending" else adj.get("percent")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -129,6 +130,7 @@ class StropAdjustment(StropEntity, SensorEntity):
         return {
             "date": adj.get("date"),
             "skipped": adj.get("skip"),
+            "pending_forecast": adj.get("reason_key") == "pending",
             "reason": adj.get("reason"),
             "temperature": inputs.get("temp"),
             "humidity": inputs.get("humidity"),

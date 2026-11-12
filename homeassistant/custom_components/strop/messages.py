@@ -24,6 +24,7 @@ REASONS = {
         "not_needed.rain": "nu e necesar: ploaie ({rain} mm)",
         "too_short": "rularea ajustată ar fi prea scurtă",
         "no_data": "fără date meteo",
+        "pending": "ajustare când apare prognoza",
     },
     "en": {
         "frost": "frost risk (min {min}°C)",
@@ -33,6 +34,7 @@ REASONS = {
         "not_needed.rain": "not needed: rain ({rain} mm)",
         "too_short": "adjusted run too short",
         "no_data": "no weather data",
+        "pending": "adjusted once the forecast is in",
     },
 }
 
@@ -154,5 +156,10 @@ def next_run_text(schedule: dict[str, Any], at, today, lang: str) -> str:
     else:
         day = f"{DAYS.get(lang, DAYS['en'])[at.weekday()]} {at.day} {MONTHS.get(lang, MONTHS['en'])[at.month - 1]}"
     when = f"{day}, {at:%H:%M}"
-    what = n["skipped"].format(reason=short_reason(plan, lang)) if plan.get("skip") else _minutes(plan.get("duration"))
+    if plan.get("skip"):
+        what = n["skipped"].format(reason=short_reason(plan, lang))
+    elif plan.get("reason_key") == "pending":
+        what = f"≤ {_minutes(plan.get('duration'))}"
+    else:
+        what = _minutes(plan.get("duration"))
     return f"{when} · {what}"

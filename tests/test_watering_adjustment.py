@@ -252,3 +252,19 @@ def test_reason_keys_for_translation():
 def test_decode_note_accepts_plain_text():
     assert decode_note('old free text') == {'key': None, 'args': {}, 'text': 'old free text'}
     assert decode_note(None)['text'] == ''
+
+
+def test_run_beyond_forecast_is_pending_not_no_data():
+    """A run further away than the forecast reaches is 'pending', not 'no data'."""
+    from datetime import date, timedelta
+    from src.services.watering_adjustment import compute_adjustment
+    today = date(2026, 11, 12)
+    weather = {(today + timedelta(days=o)).isoformat(): {
+        'temperature_minimum': 10, 'temperature_maximum': 20, 'average_humidity': 60, 'total_rain': 0}
+        for o in range(-3, 6)}
+    far = compute_adjustment(weather, today + timedelta(days=7))
+    assert far['reason_key'] == 'pending' and far['pending'] and far['percent'] == 100 and not far['skip']
+    assert far['reason_args'] == {'until': '2026-11-17'}
+    near = compute_adjustment(weather, today + timedelta(days=5))
+    assert near['reason_key'] != 'pending' and not near['pending']
+    assert compute_adjustment({}, today)['reason_key'] == 'no_data'

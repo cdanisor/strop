@@ -85,6 +85,7 @@ def compute_adjustment(weather_by_date: Dict[str, Dict[str, Any]], run_date: dat
         'date': run_date.isoformat(),
         'percent': 100,
         'skip': False,
+        'pending': False,
         'reason': '',
         # Machine-readable reason (translated by the UI): key + arguments
         'reason_key': 'normal',
@@ -108,7 +109,15 @@ def compute_adjustment(weather_by_date: Dict[str, Dict[str, Any]], run_date: dat
     humidity = _mean(d.get('average_humidity') for d in climate_days)
 
     if temp is None and humidity is None:
-        result.update(reason='No weather data, full duration', reason_key='no_data')
+        known = [d for d in weather_by_date if d]
+        if known and run_date.isoformat() > max(known):
+            # The run is further away than the forecast reaches: nothing is
+            # "forgotten", the adjustment is computed once the forecast covers it.
+            result.update(pending=True, reason_key='pending',
+                          reason='Beyond the forecast, adjusted when the forecast reaches that day',
+                          reason_args={'until': max(known)})
+        else:
+            result.update(reason='No weather data, full duration', reason_key='no_data')
         return result
 
     # Weighted rain window

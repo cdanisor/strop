@@ -707,9 +707,11 @@ class APIService:
                         for r in runs:
                             plan = adjuster.plan(base_duration, r.date(), weather_by_date)
                             if r.date().isoformat() not in weather_by_date:
-                                plan['reason'] = 'Forecast not available yet, adjusted at run time'
-                                plan['reason_key'] = 'no_forecast'
-                                plan['reason_args'] = {}
+                                # Beyond the forecast: shown as "pending" (at most the
+                                # programmed time), computed for real at run time
+                                plan.update(reason='Forecast not available yet, adjusted at run time',
+                                            reason_key='pending', reason_args={}, pending=True,
+                                            percent=100, skip=False, duration=base_duration)
                             planned.append({
                                 'at': r.isoformat(),
                                 'base_duration': base_duration,
