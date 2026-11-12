@@ -80,9 +80,13 @@ class MyHttpRequestHandler(http.server.SimpleHTTPRequestHandler):
         # For all other requests, serve normally
         super().do_GET()
 
+class ReusableTCPServer(socketserver.TCPServer):
+    # Allow immediate restarts (otherwise the port stays in TIME_WAIT for ~60 s)
+    allow_reuse_address = True
+
 def start_server():
     try:
-        with socketserver.TCPServer(("", PORT), MyHttpRequestHandler) as httpd:
+        with ReusableTCPServer(("", PORT), MyHttpRequestHandler) as httpd:
             print(f"Server running at http://localhost:{PORT}/")
             print(f"Serving files from '{DIRECTORY}' directory")
             print("Press Ctrl+C to stop the server")
