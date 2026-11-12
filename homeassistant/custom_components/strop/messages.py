@@ -105,3 +105,54 @@ def event_message(kind: str, payload: dict[str, Any], lang: str) -> tuple[str, s
     else:
         msg = t.get(kind, kind)
     return t["title"], msg
+
+
+# ---------------------------------------------------------------------- next run text
+DAYS = {
+    "ro": ["luni", "marți", "miercuri", "joi", "vineri", "sâmbătă", "duminică"],
+    "en": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+}
+MONTHS = {
+    "ro": ["ian.", "feb.", "mar.", "apr.", "mai", "iun.", "iul.", "aug.", "sept.", "oct.", "nov.", "dec."],
+    "en": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+}
+NEXT = {
+    "ro": {"off": "Program oprit", "none": "Fără program", "today": "azi", "tomorrow": "mâine",
+           "skipped": "sărită ({reason})", "watering": "Udă acum"},
+    "en": {"off": "Schedule off", "none": "No schedule", "today": "today", "tomorrow": "tomorrow",
+           "skipped": "skipped ({reason})", "watering": "Watering now"},
+}
+SHORT_REASONS = {
+    "ro": {"frost": "îngheț", "cold": "prea frig", "not_needed.rain": "ploaie", "not_needed.humidity": "umiditate",
+           "not_needed.temp": "vreme rece", "too_short": "prea scurtă"},
+    "en": {"frost": "frost", "cold": "too cold", "not_needed.rain": "rain", "not_needed.humidity": "humidity",
+           "not_needed.temp": "cool weather", "too_short": "too short"},
+}
+
+
+def short_reason(plan: dict[str, Any], lang: str) -> str:
+    key = plan.get("reason_key") or ""
+    if key == "not_needed":
+        key = f"not_needed.{(plan.get('reason_args') or {}).get('factor', 'rain')}"
+    return SHORT_REASONS.get(lang, SHORT_REASONS["en"]).get(key) or (plan.get("reason") or "?")
+
+
+def next_run_text(schedule: dict[str, Any], at, today, lang: str) -> str:
+    """Human readable state of the next run: 'Program oprit', 'vineri 13 nov., 05:35 · 6 min', ..."""
+    n = NEXT.get(lang, NEXT["en"])
+    if not schedule.get("cron_expression"):
+        return n["none"]
+    planned = schedule.get("planned") or []
+    if not schedule.get("enabled") or not planned or at is None:
+        return n["off"]
+    plan = planned[0]
+    diff = (at.date() - today).days
+    if diff == 0:
+        day = n["today"]
+    elif diff == 1:
+        day = n["tomorrow"]
+    else:
+        day = f"{DAYS.get(lang, DAYS['en'])[at.weekday()]} {at.day} {MONTHS.get(lang, MONTHS['en'])[at.month - 1]}"
+    when = f"{day}, {at:%H:%M}"
+    what = n["skipped"].format(reason=short_reason(plan, lang)) if plan.get("skip") else _minutes(plan.get("duration"))
+    return f"{when} · {what}"

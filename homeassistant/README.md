@@ -27,8 +27,7 @@ controller: control, sensors, push events and phone notifications.
 | `number.strop_zone_N_manual_duration` | Minutes used by the zone switch (1–60) |
 | `binary_sensor.strop_zone_N_watering` | Valve open |
 | `sensor.strop_zone_N_remaining` | Time left of the current run |
-| `sensor.strop_zone_N_next_run` | Next scheduled run (timestamp) |
-| `sensor.strop_zone_N_next_run_duration` | Weather-adjusted duration of the next run (attributes: programmed time, %, reason) |
+| `sensor.strop_zone_N_next_run` | Next run as text: "Schedule off", "Friday 13 Nov, 05:35 · 6 min", "… · skipped (rain)" (attributes: exact time, programmed and adjusted minutes, %, reason) |
 | `sensor.strop_weather_adjustment` | % of programmed time for the next run day (attributes: temperature, humidity, rain and their effect) |
 | `sensor.strop_watered_today` | Total watering time today |
 | `sensor.strop_forecast_updated` | Last weather update |

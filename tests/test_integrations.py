@@ -244,3 +244,17 @@ def test_notification_texts():
     assert 'închisă forțat' in msg
     _, msg = m.event_message('run_skipped', {'valve_id': 1, 'reason_key': 'frost', 'reason_args': {'min': 1}}, 'en')
     assert msg.endswith('frost risk (min 1°C).')
+
+
+def test_next_run_text():
+    from datetime import date, datetime
+    m = _messages()
+    today = date(2026, 11, 12)  # Thursday
+    plan = {'at': '', 'duration': 360, 'base_duration': 1800, 'percent': 20, 'skip': False}
+    on = {'cron_expression': '35 5 * * 2', 'enabled': True, 'planned': [plan]}
+    assert m.next_run_text({'cron_expression': '', 'enabled': False}, None, today, 'ro') == 'Fără program'
+    assert m.next_run_text(dict(on, enabled=False), None, today, 'ro') == 'Program oprit'
+    assert m.next_run_text(on, datetime(2026, 11, 17, 5, 35), today, 'ro') == 'marți 17 nov., 05:35 · 6 min'
+    assert m.next_run_text(on, datetime(2026, 11, 13, 5, 35), today, 'en') == 'tomorrow, 05:35 · 6 min'
+    skipped = dict(on, planned=[dict(plan, skip=True, reason_key='not_needed', reason_args={'factor': 'rain'})])
+    assert m.next_run_text(skipped, datetime(2026, 11, 12, 6, 0), today, 'ro') == 'azi, 06:00 · sărită (ploaie)'

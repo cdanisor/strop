@@ -70,7 +70,6 @@
     "sensor": {
       "remaining": { "name": "Zona {zone} timp rămas" },
       "next_run": { "name": "Zona {zone} următoarea udare" },
-      "next_duration": { "name": "Zona {zone} durata următoarei udări" },
       "adjustment": { "name": "Ajustare după vreme" },
       "watered_today": { "name": "Udat azi" },
       "weather_updated": { "name": "Prognoză actualizată" }

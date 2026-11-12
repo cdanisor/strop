@@ -70,7 +70,6 @@
     "sensor": {
       "remaining": { "name": "Zone {zone} remaining" },
       "next_run": { "name": "Zone {zone} next run" },
-      "next_duration": { "name": "Zone {zone} next run duration" },
       "adjustment": { "name": "Weather adjustment" },
       "watered_today": { "name": "Watered today" },
       "weather_updated": { "name": "Forecast updated" }

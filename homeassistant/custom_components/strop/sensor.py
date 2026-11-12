@@ -7,11 +7,13 @@ from typing import Any
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import PERCENTAGE, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import VALVES
+from .const import CONF_LANGUAGE, DOMAIN, VALVES
 from .entity import StropEntity
+from .messages import next_run_text
 
 
 def _parse(value: str | None) -> datetime | None:
@@ -27,9 +29,15 @@ def _parse(value: str | None) -> datetime | None:
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
+    # "next run duration" was merged into the next-run sensor's attributes
+    registry = er.async_get(hass)
+    for v in VALVES:
+        old = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_zone{v}_next_duration")
+        if old:
+            registry.async_remove(old)
     entities: list[SensorEntity] = []
     for v in VALVES:
-        entities += [StropRemaining(coordinator, v), StropNextRun(coordinator, v), StropNextDuration(coordinator, v)]
+        entities += [StropRemaining(coordinator, v), StropNextRun(coordinator, v)]
     entities += [StropAdjustment(coordinator), StropWateredToday(coordinator), StropWeatherUpdated(coordinator)]
     async_add_entities(entities)
 
@@ -56,50 +64,47 @@ class StropRemaining(StropEntity, SensorEntity):
 
 
 class StropNextRun(StropEntity, SensorEntity):
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    """Next run as readable text ("Program oprit", "vineri 13 nov., 05:35 · 6 min").
+
+    The exact time and durations are attributes, for automations.
+    """
+
     _attr_icon = "mdi:calendar-arrow-right"
 
     def __init__(self, coordinator, valve_id: int) -> None:
         super().__init__(coordinator, "next_run", valve_id)
 
     @property
-    def native_value(self) -> datetime | None:
+    def _language(self) -> str:
+        lang = self.coordinator.config_entry.options.get(CONF_LANGUAGE)
+        if lang:
+            return lang
+        return "ro" if (self.hass.config.language or "").startswith("ro") else "en"
+
+    @property
+    def native_value(self) -> str:
+        schedule = self.valve.get("schedule") or {}
+        if self.valve.get("open"):
+            from .messages import NEXT
+            return NEXT.get(self._language, NEXT["en"])["watering"]
         plan = _first_plan(self)
-        return _parse(plan["at"]) if plan else None
+        at = dt_util.as_local(_parse(plan["at"])) if plan else None
+        return next_run_text(schedule, at, dt_util.now().date(), self._language)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        schedule = self.valve.get("schedule") or {}
         plan = _first_plan(self) or {}
+        at = _parse(plan.get("at")) if plan else None
         return {
+            "schedule_enabled": bool(schedule.get("enabled")),
+            "at": at.isoformat() if at else None,
             "programmed_minutes": round((plan.get("base_duration") or 0) / 60, 1) if plan else None,
             "adjusted_minutes": round((plan.get("duration") or 0) / 60, 1) if plan else None,
             "percent": plan.get("percent"),
             "skipped": plan.get("skip"),
             "reason": plan.get("reason"),
         }
-
-
-class StropNextDuration(StropEntity, SensorEntity):
-    """Weather-adjusted duration of the next scheduled run (0 = skipped)."""
-
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
-    _attr_suggested_unit_of_measurement = UnitOfTime.MINUTES
-    _attr_icon = "mdi:timer-cog-outline"
-
-    def __init__(self, coordinator, valve_id: int) -> None:
-        super().__init__(coordinator, "next_duration", valve_id)
-
-    @property
-    def native_value(self) -> int | None:
-        plan = _first_plan(self)
-        return int(plan.get("duration") or 0) if plan else None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        plan = _first_plan(self) or {}
-        return {"programmed_seconds": plan.get("base_duration"), "percent": plan.get("percent"),
-                "reason": plan.get("reason")}
 
 
 class StropAdjustment(StropEntity, SensorEntity):
