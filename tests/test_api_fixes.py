@@ -73,7 +73,7 @@ def test_enable_then_disable_schedule(client):
     v1 = next(r for r in runs if r['valve_id'] == 1)['next_runs']
     assert len(v1) == 5
     assert all(datetime.fromisoformat(x).strftime('%A') == 'Thursday' for x in v1)
-    job_time = main_service.valve_scheduler.scheduler.get_job('valve_1_cron').next_run_time
+    job_time = main_service.valve_scheduler._jobs_of_valve(1)[0].next_run_time
     assert datetime.fromisoformat(v1[0]) == job_time
 
     r = client.post('/api/valves/1/cron', json={'cron_expression': '35 5 * * 4', 'duration': 300, 'enabled': False})
@@ -91,8 +91,8 @@ def test_delete_schedule(client):
     r = client.delete('/api/valves/2/cron')
     assert r.status_code == 200
     assert not main_service.valve_scheduler.has_job(2)
-    cron = client.get('/api/valves/2/cron').get_json()['cron']
-    assert cron['enabled'] is False and cron['cron_expression'] == ''
+    # clearing the legacy single schedule deletes the zone's schedules
+    assert client.get('/api/valves/2/cron').get_json()['cron'] is None
 
 
 def test_forecast_endpoint_no_longer_crashes(client):

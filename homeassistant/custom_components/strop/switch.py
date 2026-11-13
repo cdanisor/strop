@@ -56,7 +56,7 @@ class StropValveSwitch(StropEntity, SwitchEntity):
 
 
 class StropScheduleSwitch(StropEntity, SwitchEntity):
-    """Enable / disable the zone's automatic schedule."""
+    """Enable / disable all of the zone's schedules (on while at least one is on)."""
 
     _attr_icon = "mdi:calendar-clock"
 
@@ -68,8 +68,12 @@ class StropScheduleSwitch(StropEntity, SwitchEntity):
         return self.valve.get("schedule") or {}
 
     @property
+    def schedules(self) -> list[dict]:
+        return self.valve.get("schedules") or []
+
+    @property
     def available(self) -> bool:
-        return super().available and bool(self.schedule.get("cron_expression"))
+        return super().available and bool(self.schedules or self.schedule.get("cron_expression"))
 
     @property
     def is_on(self) -> bool:
@@ -77,15 +81,22 @@ class StropScheduleSwitch(StropEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        s = self.schedule
-        return {"cron": s.get("cron_expression"), "duration": s.get("duration"), "last_run": s.get("last_run")}
+        schedules = self.schedules
+        return {
+            "schedules": [
+                {"cron": s.get("cron_expression"), "minutes": round((s.get("duration") or 0) / 60, 1),
+                 "enabled": bool(s.get("enabled")), "next_run": s.get("next_run")}
+                for s in schedules
+            ],
+            "enabled_count": sum(1 for s in schedules if s.get("enabled")),
+            "last_run": self.schedule.get("last_run"),
+        }
 
     async def _set(self, enabled: bool) -> None:
-        s = self.schedule
-        if not s.get("cron_expression"):
+        if not self.schedules:
             raise HomeAssistantError("Strop: no schedule configured for this zone")
         try:
-            await self.coordinator.client.set_schedule(self.valve_id, s["cron_expression"], s.get("duration") or 300, enabled)
+            await self.coordinator.client.set_schedules_enabled(self.valve_id, enabled)
         except StropError as err:
             raise HomeAssistantError(f"Strop: {err}") from err
         await self.coordinator.async_request_refresh()

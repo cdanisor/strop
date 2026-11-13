@@ -334,7 +334,21 @@ svg { display: block; }
 /* ------------------------------------------------------------------ schedule */
 .zone-section { border-top: 1px solid var(--border); padding-top: 14px; }
 .section-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.schedule-summary .ctl-label { margin-bottom: 2px; }
+.add-schedule { height: 30px; padding: 0 10px; font-size: 13px; }
+.add-schedule svg { width: 14px; height: 14px; }
+.schedule-empty { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.schedule-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.schedule-list:empty { display: none; }
+.sched-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px 6px 12px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface-2);
+}
+.sched-row.is-editing { border-color: var(--accent); }
+.sched-text { flex: 1; min-width: 0; font-weight: 550; overflow-wrap: anywhere; }
+.sched-text.off { color: var(--muted); font-weight: 500; }
+.sched-row .icon-btn { width: 32px; height: 32px; }
 .schedule-text { font-weight: 550; }
 .schedule-text.off { color: var(--muted); font-weight: 500; }
 .schedule-actions { display: flex; align-items: center; gap: 10px; }

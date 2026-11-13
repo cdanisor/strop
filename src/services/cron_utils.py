@@ -143,3 +143,106 @@ def next_run_times(cron_expression: str, count: int = 5,
         previous = fire
         current = fire + timedelta(seconds=1)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Overlap detection between schedules of the same zone
+# ---------------------------------------------------------------------------
+_FIELD_RANGES = {'hour': (0, 23), 'day': (1, 31), 'month': (1, 12)}
+
+
+def _expand_field(text: str, name: str) -> frozenset:
+    """Expand a standard crontab field (*, a, a-b, */n, a-b/n, lists) into a set."""
+    lo, hi = _FIELD_RANGES[name]
+    values = set()
+    for part in text.split(','):
+        part = part.strip()
+        step = 1
+        if '/' in part:
+            part, step_str = part.split('/', 1)
+            if not step_str.isdigit() or int(step_str) < 1:
+                raise CronValidationError(f"Invalid {name} step: '{step_str}'")
+            step = int(step_str)
+        if part in ('*', '?'):
+            start, end = lo, hi
+        elif re.fullmatch(r'\d{1,2}-\d{1,2}', part):
+            start, end = (int(x) for x in part.split('-'))
+        elif re.fullmatch(r'\d{1,2}', part):
+            start = int(part)
+            end = start if step == 1 else hi
+        else:
+            raise CronValidationError(f"Unsupported {name} value: '{part}'")
+        if not (lo <= start <= hi and lo <= end <= hi) or end < start:
+            raise CronValidationError(f"{name.capitalize()} out of range ({lo}-{hi}): '{part}'")
+        values.update(range(start, end + 1, step))
+    return frozenset(values)
+
+
+class _Pattern:
+    """A crontab expression expanded to sets, to test which days/times it fires."""
+
+    def __init__(self, cron_expression: str):
+        build_trigger(cron_expression)  # full validation
+        minute, hour, day, month, dow = cron_expression.split()
+        minutes = sorted(int(m) for m in minute.split(','))
+        if any(m > 59 for m in minutes):
+            raise CronValidationError("Minute out of range (0-59)")
+        self.times = sorted(h * 60 + m for h in _expand_field(hour, 'hour') for m in minutes)
+        self.days = _expand_field(day, 'day')
+        self.months = _expand_field(month, 'month')
+        names = convert_dow(dow)
+        # Python weekday(): Monday = 0
+        self.weekdays = frozenset(range(7)) if names == '*' else frozenset(
+            (_NAME_TO_NUM[n] - 1) % 7 for n in names.split(','))
+
+    def fires_on(self, d) -> bool:
+        # APScheduler requires day, month AND weekday to match
+        return d.month in self.months and d.day in self.days and d.weekday() in self.weekdays
+
+
+def validate_schedule_fields(cron_expression: str) -> None:
+    """Raise CronValidationError if the expression uses syntax the overlap check can't read."""
+    _Pattern(cron_expression)
+
+
+def find_overlap(first: str, first_seconds: int, second: Optional[str] = None,
+                 second_seconds: Optional[int] = None) -> Optional[datetime]:
+    """
+    First moment where a run of `first` (lasting first_seconds) overlaps a run
+    of `second`, or None. Without `second`, checks `first` against itself
+    (two start times closer than the duration). Durations are below one day,
+    so a run can spill only into the next day.
+
+    The weekday/day/month combination repeats over a 4-year span (with a
+    leap day), so checking every distinct combination of "fires yesterday /
+    fires today" over that span covers every date.
+    """
+    from datetime import date as _date
+    a = _Pattern(first)
+    b = a if second is None else _Pattern(second)
+    a_len = max(1, -(-int(first_seconds) // 60))
+    b_len = a_len if second is None else max(1, -(-int(second_seconds or 0) // 60))
+    same = second is None
+
+    seen = set()
+    start = _date(2023, 12, 31)  # so the first day checked is Monday 2024-01-01
+    for offset in range(1, 4 * 366 + 1):
+        today = start + timedelta(days=offset)
+        yesterday = today - timedelta(days=1)
+        key = (a.fires_on(yesterday), a.fires_on(today), b.fires_on(yesterday), b.fires_on(today))
+        if key in seen:
+            continue
+        seen.add(key)
+        # runs as minute intervals relative to today's midnight
+        runs_a = [(t - 1440, t - 1440 + a_len) for t in a.times if key[0]] + \
+                 [(t, t + a_len) for t in a.times if key[1]]
+        runs_b = [(t - 1440, t - 1440 + b_len) for t in b.times if key[2]] + \
+                 [(t, t + b_len) for t in b.times if key[3]]
+        for i, (s1, e1) in enumerate(runs_a):
+            for j, (s2, e2) in enumerate(runs_b):
+                if same and i == j:
+                    continue
+                if s1 < e2 and s2 < e1 and (s1 >= 0 or s2 >= 0):
+                    at = max(s1, s2)
+                    return datetime.combine(today, datetime.min.time()) + timedelta(minutes=at)
+    return None

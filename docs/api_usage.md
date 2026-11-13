@@ -181,6 +181,31 @@ Returns the operation history for all valves (last 100 operations).
 }
 ```
 
+## Schedule Endpoints
+
+A zone can have several schedules (at most 8). Each one is a standard crontab
+expression (`minute hour day month day_of_week`, minute fixed, `0`/`7` =
+Sunday) plus a duration in seconds (1-3600). Runs of the same zone may not
+overlap: an enabled schedule is rejected if one of its runs would start
+while another run of the zone (from any enabled schedule, or the schedule
+itself) is still going. Disabled schedules are not checked until enabled.
+
+```
+GET    /api/valves/{valve_id}/schedules
+POST   /api/valves/{valve_id}/schedules          {"cron_expression": "0 6 * * 1,3,5", "duration": 900, "enabled": true}
+PUT    /api/schedules/{schedule_id}              any of cron_expression, duration, enabled
+DELETE /api/schedules/{schedule_id}
+POST   /api/valves/{valve_id}/schedules/enabled  {"enabled": false}   (all schedules of the zone)
+```
+
+An overlap answers `400` with `code: "schedule_overlap"` and
+`conflict: {schedule_id, cron_expression, duration, weekday (0 = Monday), time}`
+(`schedule_id` is null when the schedule overlaps itself). More than 8
+schedules answers `code: "too_many_schedules"`.
+
+The older single-schedule endpoints (`/api/valves/{valve_id}/cron`) still
+work on the zone's first schedule; `DELETE` removes all of the zone's schedules.
+
 ## Health Check
 ```
 GET /api/health

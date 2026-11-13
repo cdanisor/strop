@@ -23,7 +23,7 @@ controller: control, sensors, push events and phone notifications.
 | Entity | Description |
 |---|---|
 | `switch.strop_zone_N` | On: water now for the "manual duration"; Off: stop |
-| `switch.strop_zone_N_schedule` | Enable / disable the zone's schedule |
+| `switch.strop_zone_N_schedule` | Turn all of the zone's schedules on / off (on while at least one is on; attributes list every schedule) |
 | `number.strop_zone_N_manual_duration` | Minutes used by the zone switch (1–60) |
 | `binary_sensor.strop_zone_N_watering` | Valve open |
 | `sensor.strop_zone_N_remaining` | Time left of the current run |

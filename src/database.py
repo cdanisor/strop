@@ -137,6 +137,17 @@ class Database:
                 )
             ''')
             
+            # Several schedules per valve (one row each). Schema version 2 drops
+            # the empty rows the single-schedule version used for "cleared".
+            version = cursor.execute('PRAGMA user_version').fetchone()[0]
+            if version < 2:
+                cursor.execute("DELETE FROM valve_cron WHERE cron_expression IS NULL OR TRIM(cron_expression) = ''")
+                cursor.execute('''
+                    DELETE FROM valve_cron WHERE id NOT IN (
+                        SELECT MIN(id) FROM valve_cron GROUP BY valve_id, cron_expression, duration)
+                ''')
+                cursor.execute('PRAGMA user_version = 2')
+
             # Create system_config table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS system_config (
@@ -528,178 +539,147 @@ class Database:
             logger.error(f"Failed to retrieve weather data history: {e}")
             return []
     
-    def update_valve_cron(self, valve_id: int, cron_expression: str, enabled: bool = True) -> bool:
-        """
-        Update cron schedule for a specific valve.
-        
-        Args:
-            valve_id (int): ID of the valve (1 or 2)
-            cron_expression (str): Cron expression for scheduling
-            enabled (bool): Whether the schedule is active
-        
-        Returns:
-            bool: True if update was successful, False otherwise
-        """
+    # ------------------------------------------------------------------ schedules
+    @staticmethod
+    def _schedule_row(row) -> Dict[str, Any]:
+        return {
+            'id': row['id'],
+            'valve_id': row['valve_id'],
+            'cron_expression': row['cron_expression'] or '',
+            'enabled': bool(row['enabled']),
+            'last_run': row['last_run'],
+            'next_run': row['next_run'],
+            'duration': row['duration'],
+        }
+
+    def list_schedules(self, valve_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Schedules (non-empty), optionally of one valve, oldest first."""
+        conn = self.get_connection()
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-        
-            # First, check if a record already exists for this valve
-            cursor.execute('''
-                SELECT id FROM valve_cron WHERE valve_id = ?
-            ''', (valve_id,))
-            
-            existing_record = cursor.fetchone()
-            
-            if existing_record:
-                # Update existing record
-                cursor.execute('''
-                    UPDATE valve_cron
-                    SET cron_expression = ?, enabled = ?, last_run = NULL, next_run = NULL
-                    WHERE valve_id = ?
-                ''', (cron_expression, enabled, valve_id))
-            else:
-                # Insert new record
-                cursor.execute('''
-                    INSERT INTO valve_cron (valve_id, cron_expression, enabled, last_run, next_run)
-                    VALUES (?, ?, ?, NULL, NULL)
-                ''', (valve_id, cron_expression, enabled))
-        
-            conn.commit()
+            sql = "SELECT * FROM valve_cron WHERE TRIM(COALESCE(cron_expression, '')) != ''"
+            args: tuple = ()
+            if valve_id is not None:
+                sql += ' AND valve_id = ?'
+                args = (valve_id,)
+            rows = conn.execute(sql + ' ORDER BY valve_id, id', args).fetchall()
+            return [self._schedule_row(r) for r in rows]
+        finally:
             conn.close()
-            logger.info(f"Valve cron updated: valve_id={valve_id}, cron_expression={cron_expression}, enabled={enabled}")
+
+    def get_schedule(self, schedule_id: int) -> Optional[Dict[str, Any]]:
+        conn = self.get_connection()
+        try:
+            row = conn.execute('SELECT * FROM valve_cron WHERE id = ?', (schedule_id,)).fetchone()
+            return self._schedule_row(row) if row else None
+        finally:
+            conn.close()
+
+    def create_schedule(self, valve_id: int, cron_expression: str, duration: int, enabled: bool = True) -> int:
+        conn = self.get_connection()
+        try:
+            cur = conn.execute(
+                'INSERT INTO valve_cron (valve_id, cron_expression, enabled, duration) VALUES (?, ?, ?, ?)',
+                (valve_id, cron_expression, bool(enabled), duration))
+            conn.commit()
+            logger.info("Schedule %s created: valve_id=%s, cron=%s, duration=%s, enabled=%s",
+                        cur.lastrowid, valve_id, cron_expression, duration, enabled)
+            return cur.lastrowid
+        finally:
+            conn.close()
+
+    def update_schedule(self, schedule_id: int, cron_expression: Optional[str] = None,
+                        duration: Optional[int] = None, enabled: Optional[bool] = None) -> bool:
+        """Change some fields of a schedule; last_run is kept."""
+        fields, args = [], []
+        for column, value in (('cron_expression', cron_expression), ('duration', duration),
+                              ('enabled', None if enabled is None else bool(enabled))):
+            if value is not None:
+                fields.append(f'{column} = ?')
+                args.append(value)
+        if not fields:
+            return self.get_schedule(schedule_id) is not None
+        conn = self.get_connection()
+        try:
+            cur = conn.execute(f"UPDATE valve_cron SET {', '.join(fields)} WHERE id = ?", (*args, schedule_id))
+            conn.commit()
+            logger.info("Schedule %s updated: %s", schedule_id, dict(zip(fields, args)))
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def delete_schedule(self, schedule_id: int) -> bool:
+        conn = self.get_connection()
+        try:
+            cur = conn.execute('DELETE FROM valve_cron WHERE id = ?', (schedule_id,))
+            conn.commit()
+            logger.info("Schedule %s deleted", schedule_id)
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------ single-schedule API (legacy)
+    # These act on the zone's first schedule; kept for older clients.
+    def _first_schedule_id(self, valve_id: int) -> Optional[int]:
+        conn = self.get_connection()
+        try:
+            row = conn.execute('SELECT id FROM valve_cron WHERE valve_id = ? ORDER BY id LIMIT 1',
+                               (valve_id,)).fetchone()
+            return row['id'] if row else None
+        finally:
+            conn.close()
+
+    def update_valve_cron(self, valve_id: int, cron_expression: str, enabled: bool = True) -> bool:
+        """Set the zone's first schedule; an empty expression deletes all its schedules."""
+        try:
+            if not (cron_expression or '').strip():
+                conn = self.get_connection()
+                try:
+                    conn.execute('DELETE FROM valve_cron WHERE valve_id = ?', (valve_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+                logger.info("All schedules of valve %s deleted", valve_id)
+                return True
+            sid = self._first_schedule_id(valve_id)
+            if sid is None:
+                self.create_schedule(valve_id, cron_expression, None, enabled)
+            else:
+                self.update_schedule(sid, cron_expression=cron_expression, enabled=enabled)
             return True
-        
         except Exception as e:
             logger.error(f"Failed to update valve cron: {e}")
             return False
-    
+
     def get_valve_cron(self, valve_id: int) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve cron schedule for a specific valve.
-        
-        Args:
-            valve_id (int): ID of the valve (1 or 2)
-    
-        Returns:
-            Dict[str, Any]: Valve cron schedule or None if not found
-        """
+        """The zone's first schedule (or None)."""
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-    
-            cursor.execute('''
-                SELECT * FROM valve_cron WHERE valve_id = ?
-            ''', (valve_id,))
-    
-            row = cursor.fetchone()
-            conn.close()
-    
-            if row:
-                # Handle case where duration might be NULL
-                duration = row['duration'] if row['duration'] is not None else None
-                return {
-                    'id': row['id'],
-                    'valve_id': row['valve_id'],
-                    'cron_expression': row['cron_expression'],
-                    'enabled': bool(row['enabled']),
-                    'last_run': row['last_run'],
-                    'next_run': row['next_run'],
-                    'duration': duration
-                }
-    
-            return None
-    
+            sid = self._first_schedule_id(valve_id)
+            return self.get_schedule(sid) if sid is not None else None
         except Exception as e:
             logger.error(f"Failed to retrieve valve cron: {e}")
             return None
-    
+
     def update_valve_cron_duration(self, valve_id: int, duration: int) -> bool:
-        """
-        Update duration for a specific valve cron.
-        
-        Args:
-            valve_id (int): ID of the valve (1 or 2)
-            duration (int): Duration in seconds for the valve operation
-        
-        Returns:
-            bool: True if update was successful, False otherwise
-        """
+        """Set the duration of the zone's first schedule."""
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-        
-            # First check if a record exists for this valve
-            cursor.execute('''
-                SELECT id FROM valve_cron WHERE valve_id = ?
-            ''', (valve_id,))
-            
-            existing_record = cursor.fetchone()
-            
-            if existing_record:
-                # Update existing record
-                cursor.execute('''
-                    UPDATE valve_cron
-                    SET duration = ?
-                    WHERE valve_id = ?
-                ''', (duration, valve_id))
+            sid = self._first_schedule_id(valve_id)
+            if sid is None:
+                self.create_schedule(valve_id, '', duration, False)
             else:
-                # Insert new record with duration
-                cursor.execute('''
-                    INSERT INTO valve_cron (valve_id, cron_expression, enabled, last_run, next_run, duration)
-                    VALUES (?, '', 0, NULL, NULL, ?)
-                ''', (valve_id, duration))
-        
-            conn.commit()
-            conn.close()
-            logger.info(f"Valve cron duration updated: valve_id={valve_id}, duration={duration}")
+                self.update_schedule(sid, duration=duration)
             return True
-        
         except Exception as e:
             logger.error(f"Failed to update valve cron duration: {e}")
             return False
-    
+
     def get_all_valve_crons(self) -> List[Dict[str, Any]]:
-        """
-        Retrieve all valve cron schedules.
-        
-        Returns:
-            List[Dict[str, Any]]: List of all valve cron schedules
-        """
+        """All schedules of all valves."""
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-       
-            cursor.execute('''
-                SELECT * FROM valve_cron ORDER BY valve_id
-            ''')
-       
-            rows = cursor.fetchall()
-            conn.close()
-       
-            # Convert rows to list of dictionaries
-            crons = []
-            for row in rows:
-                cron = {
-                    'id': row['id'],
-                    'valve_id': row['valve_id'],
-                    'cron_expression': row['cron_expression'],
-                    'enabled': bool(row['enabled']),
-                    'last_run': row['last_run'],
-                    'next_run': row['next_run'],
-                    'duration': row['duration'] if row['duration'] is not None else None
-                }
-                crons.append(cron)
-       
-            logger.info(f"Retrieved {len(crons)} valve cron schedules from database")
-            return crons
-       
+            return self.list_schedules()
         except Exception as e:
             logger.error(f"Failed to retrieve all valve crons: {e}")
-            import traceback
-            traceback.print_exc()
             return []
-    
+
     def update_system_config(self, config: Dict[str, Any]) -> bool:
         """
         Update system configuration settings.

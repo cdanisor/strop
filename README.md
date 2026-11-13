@@ -9,7 +9,7 @@ An automated irrigation system that controls two solenoid valves via GPIO pins o
 - Intelligent irrigation scheduling based on 5-day weather forecast
 - Web-based UI for monitoring and control
 - Manual valve activation
-- Configurable cron scheduling
+- Several schedules per zone (cron), validated so runs of a zone never overlap
 - REST API for remote valve control
 - Automatic weather data updates at startup and every 3 hours
 - Weather data API endpoints for UI consumption

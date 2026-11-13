@@ -179,7 +179,7 @@ def test_scheduler_job_and_display_agree_on_day(scheduler, db):
     sched, _ = scheduler
     db.update_valve_cron(1, "35 5 * * 4", True)
     sched.reload_valve(1)
-    job_day = sched.scheduler.get_job("valve_1_cron").next_run_time.strftime("%A")
+    job_day = sched._jobs_of_valve(1)[0].next_run_time.strftime("%A")
     shown_day = next_run_times("35 5 * * 4", 1)[0].strftime("%A")
     assert job_day == shown_day == "Thursday"
 

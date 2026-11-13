@@ -6,12 +6,26 @@ This service exposes valve control functionality through a REST API.
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import logging
+import threading
 from typing import Dict, Any, Optional
 import json
 
-from src.services.cron_utils import next_run_times, validate_cron, CronValidationError
+from src.services.cron_utils import (next_run_times, validate_cron, validate_schedule_fields,
+                                     CronValidationError)
 
 MAX_DURATION_SECONDS = 3600
+MAX_SCHEDULES_PER_ZONE = 8
+
+
+def _overlap_response(conflict):
+    """400 answer for a schedule that would overlap another run of the zone."""
+    other = conflict.get('schedule_id')
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    message = (f"Overlaps schedule {other} ({conflict['cron_expression']}) on "
+               f"{days[conflict['weekday']]} at {conflict['time']}" if other else
+               f"Runs of this schedule overlap each other on {days[conflict['weekday']]} at {conflict['time']}")
+    return jsonify({'success': False, 'code': 'schedule_overlap', 'message': message,
+                    'conflict': conflict}), 400
 DEFAULT_MANUAL_DURATION = 60
 
 # Configure logging
@@ -35,6 +49,8 @@ class APIService:
             port (int): Port number to bind the API to
         """
         self.host = host
+        # serialises schedule changes, so two requests cannot both pass the overlap check
+        self._schedule_lock = threading.Lock()
         self.port = port
         self.app = Flask(__name__)
         # Bearer tokens (no cookies), so credentials are not needed for CORS
@@ -529,6 +545,19 @@ class APIService:
                         return jsonify({'success': False,
                                         'message': f'Duration must be between 1 and {MAX_DURATION_SECONDS} seconds'}), 400
 
+                if enabled:
+                    from src.services.valve_cron_scheduler import find_schedule_conflict
+                    first = db.get_valve_cron(valve_id)
+                    check_duration = duration or (first or {}).get('duration') or 60
+                    try:
+                        validate_schedule_fields(cron_expression)
+                    except CronValidationError as e:
+                        return jsonify({'success': False, 'code': 'invalid_cron', 'message': str(e)}), 400
+                    conflict = find_schedule_conflict(db, valve_id, cron_expression, check_duration,
+                                                      exclude_id=(first or {}).get('id'))
+                    if conflict:
+                        return _overlap_response(conflict)
+
                 if not db.update_valve_cron(valve_id, cron_expression, enabled):
                     return jsonify({
                         'success': False,
@@ -580,6 +609,149 @@ class APIService:
             except Exception as e:
                 logger.error(f"Error clearing valve {valve_id} cron: {e}")
                 return jsonify({'success': False, 'message': f'Error clearing valve cron: {str(e)}'}), 500
+
+        # ------------------------------------------------------------------ schedules
+        # A zone can have several schedules; runs of the same zone may not overlap.
+        def _schedule_payload(payload, current=None):
+            """Validate a (partial, when `current` is given) schedule body.
+
+            Returns (fields, error_response)."""
+            if not isinstance(payload, dict):
+                return None, (jsonify({'success': False, 'message': 'JSON body required'}), 400)
+            fields = {}
+            if 'cron_expression' in payload or current is None:
+                expr = payload.get('cron_expression')
+                expr = expr.strip() if isinstance(expr, str) else ''
+                if not expr:
+                    return None, (jsonify({'success': False, 'code': 'invalid_cron',
+                                           'message': 'Cron expression is required'}), 400)
+                try:
+                    validate_cron(expr)
+                    validate_schedule_fields(expr)
+                except CronValidationError as e:
+                    return None, (jsonify({'success': False, 'code': 'invalid_cron', 'message': str(e)}), 400)
+                fields['cron_expression'] = expr
+            if 'duration' in payload or current is None:
+                duration = payload.get('duration')
+                if isinstance(duration, bool) or not isinstance(duration, (int, float)) \
+                        or int(duration) != duration or not 1 <= duration <= MAX_DURATION_SECONDS:
+                    return None, (jsonify({'success': False, 'code': 'invalid_duration',
+                                           'message': f'Duration must be between 1 and {MAX_DURATION_SECONDS} seconds'}), 400)
+                fields['duration'] = int(duration)
+            if 'enabled' in payload or current is None:
+                enabled = payload.get('enabled', True)
+                if not isinstance(enabled, bool):
+                    return None, (jsonify({'success': False, 'message': 'enabled must be true or false'}), 400)
+                fields['enabled'] = enabled
+            return fields, None
+
+        def _schedule_json(s):
+            return {k: s.get(k) for k in ('id', 'valve_id', 'cron_expression', 'enabled', 'duration',
+                                          'last_run', 'next_run')}
+
+        def _reload(valve_id):
+            from src.main_service import main_service
+            if main_service.valve_scheduler:
+                main_service.valve_scheduler.reload_valve(valve_id)
+
+        @self.app.route('/api/valves/<int:valve_id>/schedules', methods=['GET'])
+        def list_schedules(valve_id):
+            from src.database import Database
+            if valve_id not in [1, 2]:
+                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            return jsonify({'schedules': [_schedule_json(s) for s in Database().list_schedules(valve_id)]}), 200
+
+        @self.app.route('/api/valves/<int:valve_id>/schedules', methods=['POST'])
+        def create_schedule(valve_id):
+            from src.database import Database
+            from src.services.valve_cron_scheduler import find_schedule_conflict
+            if valve_id not in [1, 2]:
+                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            fields, error = _schedule_payload(request.get_json(silent=True))
+            if error:
+                return error
+            db = Database()
+            with self._schedule_lock:
+                if len(db.list_schedules(valve_id)) >= MAX_SCHEDULES_PER_ZONE:
+                    return jsonify({'success': False, 'code': 'too_many_schedules',
+                                    'message': f'At most {MAX_SCHEDULES_PER_ZONE} schedules per zone',
+                                    'max': MAX_SCHEDULES_PER_ZONE}), 400
+                if fields['enabled']:
+                    conflict = find_schedule_conflict(db, valve_id, fields['cron_expression'], fields['duration'])
+                    if conflict:
+                        return _overlap_response(conflict)
+                sid = db.create_schedule(valve_id, fields['cron_expression'], fields['duration'], fields['enabled'])
+                _reload(valve_id)
+            logger.info(f"Schedule {sid} created for valve {valve_id}: {fields}")
+            return jsonify({'success': True, 'schedule': _schedule_json(db.get_schedule(sid))}), 201
+
+        @self.app.route('/api/schedules/<int:schedule_id>', methods=['PUT', 'PATCH'])
+        def update_schedule(schedule_id):
+            from src.database import Database
+            from src.services.valve_cron_scheduler import find_schedule_conflict
+            db = Database()
+            current = db.get_schedule(schedule_id)
+            if not current or not current['cron_expression']:
+                return jsonify({'success': False, 'code': 'not_found', 'message': 'Schedule not found'}), 404
+            fields, error = _schedule_payload(request.get_json(silent=True), current)
+            if error:
+                return error
+            merged = {**current, **fields}
+            with self._schedule_lock:
+                if merged['enabled']:
+                    conflict = find_schedule_conflict(db, current['valve_id'], merged['cron_expression'],
+                                                      merged['duration'] or 60, exclude_id=schedule_id)
+                    if conflict:
+                        return _overlap_response(conflict)
+                db.update_schedule(schedule_id, **fields)
+                _reload(current['valve_id'])
+            logger.info(f"Schedule {schedule_id} updated: {fields}")
+            return jsonify({'success': True, 'schedule': _schedule_json(db.get_schedule(schedule_id))}), 200
+
+        @self.app.route('/api/schedules/<int:schedule_id>', methods=['DELETE'])
+        def delete_schedule(schedule_id):
+            from src.database import Database
+            db = Database()
+            current = db.get_schedule(schedule_id)
+            if not current:
+                return jsonify({'success': False, 'code': 'not_found', 'message': 'Schedule not found'}), 404
+            with self._schedule_lock:
+                db.delete_schedule(schedule_id)
+                _reload(current['valve_id'])
+            return jsonify({'success': True}), 200
+
+        @self.app.route('/api/valves/<int:valve_id>/schedules/enabled', methods=['POST'])
+        def set_zone_schedules_enabled(valve_id):
+            """Turn all schedules of a zone on or off (Home Assistant's schedule switch)."""
+            from src.database import Database
+            from src.services.valve_cron_scheduler import find_schedule_conflict
+            if valve_id not in [1, 2]:
+                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            enabled = (request.get_json(silent=True) or {}).get('enabled')
+            if not isinstance(enabled, bool):
+                return jsonify({'success': False, 'message': 'enabled must be true or false'}), 400
+            db = Database()
+            with self._schedule_lock:
+                schedules = db.list_schedules(valve_id)
+                if not schedules:
+                    return jsonify({'success': False, 'code': 'not_configured',
+                                    'message': 'No schedule configured for this zone'}), 400
+                if enabled:
+                    # enable one by one, so each is checked against those already on
+                    for s in schedules:
+                        if s['enabled']:
+                            continue
+                        conflict = find_schedule_conflict(db, valve_id, s['cron_expression'],
+                                                          s['duration'] or 60, exclude_id=s['id'])
+                        if conflict:
+                            _reload(valve_id)
+                            return _overlap_response(conflict)
+                        db.update_schedule(s['id'], enabled=True)
+                else:
+                    for s in schedules:
+                        db.update_schedule(s['id'], enabled=False)
+                _reload(valve_id)
+            return jsonify({'success': True}), 200
 
         # Route for getting valve usage statistics
         @self.app.route('/api/valves/usage', methods=['GET'])
@@ -709,17 +881,25 @@ class APIService:
                 valves = []
                 for valve_id in (1, 2):
                     details = main_service.get_valve_details(valve_id)
-                    cron = db.get_valve_cron(valve_id) or {}
-                    next_runs = []
+                    schedules = db.list_schedules(valve_id)
                     planned = []
-                    base_duration = cron.get('duration') or 60
-                    if cron.get('enabled') and cron.get('cron_expression'):
-                        try:
-                            runs = next_run_times(cron['cron_expression'], 5)
-                        except CronValidationError as e:
-                            logger.error(f"Invalid cron for valve {valve_id}: {e}")
-                            runs = []
-                        next_runs = [r.isoformat() for r in runs]
+                    schedule_list = []
+                    for sched in schedules:
+                        base_duration = sched.get('duration') or 60
+                        runs = []
+                        if sched['enabled']:
+                            try:
+                                runs = next_run_times(sched['cron_expression'], 5)
+                            except CronValidationError as e:
+                                logger.error(f"Invalid cron for schedule {sched['id']}: {e}")
+                        schedule_list.append({
+                            'id': sched['id'],
+                            'cron_expression': sched['cron_expression'],
+                            'enabled': sched['enabled'],
+                            'duration': sched['duration'],
+                            'last_run': sched['last_run'],
+                            'next_run': runs[0].isoformat() if runs else None,
+                        })
                         # Expected weather adjustment of each upcoming run
                         for r in runs:
                             plan = adjuster.plan(base_duration, r.date(), weather_by_date)
@@ -731,6 +911,7 @@ class APIService:
                                             percent=100, skip=False, duration=base_duration)
                             planned.append({
                                 'at': r.isoformat(),
+                                'schedule_id': sched['id'],
                                 'base_duration': base_duration,
                                 'duration': plan['duration'],
                                 'percent': plan['percent'],
@@ -740,6 +921,10 @@ class APIService:
                                 'reason_args': plan['reason_args'],
                                 'has_forecast': r.date().isoformat() in weather_by_date,
                             })
+                    planned.sort(key=lambda p: p['at'])
+                    planned = planned[:10]
+                    first = schedules[0] if schedules else {}
+                    last_runs = [s['last_run'] for s in schedules if s['last_run']]
                     history = [
                         {'status': log['status'], 'start_time': log['start_time'] or log['timestamp'],
                          'duration': log['duration'], 'base_duration': log.get('base_duration'),
@@ -752,12 +937,15 @@ class APIService:
                         'id': valve_id,
                         'name': main_service.config_service.zone_name(valve_id),
                         **details,
+                        'schedules': schedule_list,
+                        # Summary of all schedules (older clients read only this)
                         'schedule': {
-                            'cron_expression': cron.get('cron_expression') or '',
-                            'enabled': bool(cron.get('enabled')),
-                            'duration': cron.get('duration'),
-                            'last_run': cron.get('last_run'),
-                            'next_runs': next_runs,
+                            'cron_expression': first.get('cron_expression') or '',
+                            'enabled': any(s['enabled'] for s in schedules),
+                            'duration': first.get('duration'),
+                            'count': len(schedules),
+                            'last_run': max(last_runs) if last_runs else None,
+                            'next_runs': [p['at'] for p in planned][:5],
                             'planned': planned,
                         },
                         'history': history,

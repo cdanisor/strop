@@ -74,6 +74,10 @@ class StropClient:
     async def deactivate(self, valve_id: int) -> None:
         await self._request("POST", f"/valves/{valve_id}/deactivate")
 
+    async def set_schedules_enabled(self, valve_id: int, enabled: bool) -> None:
+        """Turn all schedules of a zone on or off."""
+        await self._request("POST", f"/valves/{valve_id}/schedules/enabled", {"enabled": bool(enabled)})
+
     async def set_schedule(self, valve_id: int, cron: str, duration: int, enabled: bool) -> None:
         await self._request("POST", f"/valves/{valve_id}/cron",
                             {"cron_expression": cron, "duration": int(duration), "enabled": bool(enabled)})

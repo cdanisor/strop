@@ -25,6 +25,7 @@
     var WEEK = [1, 2, 3, 4, 5, 6, 0];
 
     var state = {
+        schedules: {},       // valve id -> its schedules (from the dashboard)
         names: {},           // valve id -> custom zone name (from the controller)
         dashboard: null,
         statusKey: null,
@@ -128,6 +129,13 @@
             case 'already_active': return t('e.already_active');
             case 'invalid_duration': return t('e.invalid_duration');
             case 'invalid_cron': return t('e.invalid_cron', { detail: d.message || '' });
+            case 'too_many_schedules': return t('e.too_many_schedules', { max: d.max || 8 });
+            case 'schedule_overlap':
+                var c = d.conflict || {};
+                var when = { day: t('days.long')[((c.weekday || 0) + 1) % 7], time: c.time || '' };
+                if (!c.schedule_id) return t('e.overlap_self', when);
+                when.other = describeSchedule({ cron_expression: c.cron_expression, duration: c.duration });
+                return t('e.overlap', when);
         }
         if (err.kind === 'timeout') return t('e.timeout');
         if (err.kind === 'unreachable') return t('e.unreachable');
@@ -298,9 +306,9 @@
             custom: $('.custom-min', node),
             start: $('.start-btn', node),
             stop: $('.stop-btn', node),
-            scheduleText: $('.schedule-text', node),
-            toggle: $('.schedule-toggle', node),
-            edit: $('.edit-btn', node),
+            schedList: $('.schedule-list', node),
+            schedEmpty: $('.schedule-empty', node),
+            edDelete: $('.ed-delete', node),
             editor: $('.editor', node),
             dayChips: $('.days-chips', node),
             edTime: $('.ed-time', node),
@@ -344,8 +352,15 @@
         refs.start.addEventListener('click', function () { startValve(id); });
         refs.stop.addEventListener('click', function () { stopValve(id); });
 
-        refs.toggle.addEventListener('change', function () { toggleSchedule(id, refs.toggle.checked); });
-        refs.edit.addEventListener('click', function () { openEditor(id); });
+        $('.add-schedule', node).addEventListener('click', function () { openEditor(id, null); });
+        refs.schedList.addEventListener('click', function (e) {
+            var btn = e.target.closest('.sched-edit');
+            if (btn) openEditor(id, Number(btn.closest('.sched-row').dataset.sid));
+        });
+        refs.schedList.addEventListener('change', function (e) {
+            if (!e.target.classList.contains('sched-toggle')) return;
+            toggleSchedule(id, Number(e.target.closest('.sched-row').dataset.sid), e.target.checked, e.target);
+        });
         $('.rename-btn', node).addEventListener('click', function () { openRename(id); });
         refs.renameForm.addEventListener('submit', function (e) { e.preventDefault(); saveRename(id); });
         refs.renameInput.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeRename(id); });
@@ -399,7 +414,7 @@
                 what: plan.skip ? t('zone.skipped') : fmtDuration(plan.duration)
             });
         } else {
-            z.next.textContent = schedule.cron_expression ? t('zone.scheduleOff') : t('zone.noSchedule');
+            z.next.textContent = (v.schedules || []).length ? t('zone.scheduleOff') : t('zone.noSchedule');
         }
         renderAdjust(z, plan, next);
 
@@ -413,13 +428,7 @@
         }
         tickZone(v.id);
 
-        // schedule summary + toggle (don't fight the user while saving)
-        z.scheduleText.textContent = describeSchedule(schedule);
-        z.scheduleText.classList.toggle('off', !schedule.enabled);
-        if (!state.busy['toggle' + v.id]) z.toggle.checked = !!schedule.enabled;
-        z.toggle.disabled = !schedule.cron_expression;
-        z.root.dataset.cron = schedule.cron_expression || '';
-        z.root.dataset.duration = schedule.duration || '';
+        renderSchedules(z, v.schedules || []);
 
         renderHistory(z, v.history || []);
     }
@@ -558,23 +567,44 @@
         });
     }
 
-    function postSchedule(id, expr, durationSec, enabled) {
-        return api('/valves/' + id + '/cron', {
-            method: 'POST',
-            body: { cron_expression: expr, duration: durationSec, enabled: enabled }
-        });
+    // ------------------------------------------------------------------ schedules (several per zone)
+    function renderSchedules(z, schedules) {
+        state.schedules[z.id] = schedules;
+        // rebuild only when something changed, so a click in progress is not lost
+        var key = I18N.getLang() + '|' + state.editing[z.id] + '|' + JSON.stringify(schedules.map(function (s) {
+            return [s.id, s.cron_expression, s.enabled, s.duration];
+        }));
+        if (z.schedKey === key || state.busy['sched' + z.id]) return;
+        z.schedKey = key;
+        z.schedEmpty.hidden = schedules.length > 0;
+        z.schedList.innerHTML = schedules.map(function (s) {
+            return '<li class="sched-row' + (state.editing[z.id] === s.id ? ' is-editing' : '') + '" data-sid="' + s.id + '">' +
+                '<span class="sched-text' + (s.enabled ? '' : ' off') + '">' + escapeHtml(describeSchedule(s)) + '</span>' +
+                '<button type="button" class="icon-btn sched-edit" aria-label="' + escapeHtml(t('zone.editSchedule')) +
+                '" title="' + escapeHtml(t('zone.editSchedule')) + '">' + icon('i-edit') + '</button>' +
+                '<label class="switch" title="' + escapeHtml(t('zone.enableSchedule')) + '">' +
+                '<input type="checkbox" class="sched-toggle"' + (s.enabled ? ' checked' : '') +
+                ' aria-label="' + escapeHtml(t('zone.enableSchedule') + ': ' + describeSchedule(s)) + '">' +
+                '<span class="switch-track"></span></label></li>';
+        }).join('');
     }
 
-    function toggleSchedule(id, enabled) {
-        var z = state.zones[id];
-        var expr = z.root.dataset.cron;
-        if (!expr) { z.toggle.checked = false; openEditor(id); return; }
-        state.busy['toggle' + id] = true;
-        z.toggle.disabled = true;
-        postSchedule(id, expr, Number(z.root.dataset.duration) || 300, enabled)
+    function findSchedule(id, sid) {
+        return (state.schedules[id] || []).filter(function (s) { return s.id === sid; })[0] || null;
+    }
+
+    function toggleSchedule(id, sid, enabled, input) {
+        state.busy['sched' + id] = true;
+        input.disabled = true;
+        api('/schedules/' + sid, { method: 'PUT', body: { enabled: enabled } })
             .then(function () { toast(t(enabled ? 't.scheduleOn' : 't.scheduleOff', { n: id, zone: zoneName(id) })); })
-            .catch(function (e) { z.toggle.checked = !enabled; toast(errorText(e), true); })
-            .then(function () { state.busy['toggle' + id] = false; return loadDashboard(); });
+            .catch(function (e) { input.checked = !enabled; toast(errorText(e), true); })
+            .then(function () {
+                input.disabled = false;
+                state.busy['sched' + id] = false;
+                state.zones[id].schedKey = null;
+                return loadDashboard();
+            });
     }
 
     function setDayChips(z, days) {
@@ -592,11 +622,13 @@
         delete z.edCron.dataset.manual;
     }
 
-    function openEditor(id) {
+    // sid: schedule to edit, or null for a new one
+    function openEditor(id, sid) {
         var z = state.zones[id];
-        var expr = z.root.dataset.cron;
+        var sched = sid != null ? findSchedule(id, sid) : null;
+        var expr = sched ? sched.cron_expression : '';
         var p = parseSchedule(expr);
-        var dur = Number(z.root.dataset.duration) || 300;
+        var dur = (sched && sched.duration) || 600;
         z.edError.textContent = '';
         z.edDuration.value = Math.max(1, Math.round(dur / 60));
         if (p && p.simple) {
@@ -609,20 +641,26 @@
             z.edAdvanced.open = true;
         } else {
             setDayChips(z, [1, 3, 5]);
-            z.edTime.value = '06:30';
+            z.edTime.value = (state.schedules[id] || []).length ? '19:00' : '06:30';
             z.edAdvanced.open = false;
         }
         z.edCron.value = expr || '';
         delete z.edCron.dataset.manual;
         if (!expr) syncCronField(id);
+        z.edDelete.hidden = !sched;
         z.editor.hidden = false;
-        state.editing[id] = true;
+        state.editing[id] = sched ? sched.id : 'new';
+        z.schedKey = null;
+        renderSchedules(z, state.schedules[id] || []);
         z.edTime.focus();
     }
 
     function closeEditor(id) {
-        state.zones[id].editor.hidden = true;
+        var z = state.zones[id];
+        z.editor.hidden = true;
         state.editing[id] = false;
+        z.schedKey = null;
+        renderSchedules(z, state.schedules[id] || []);
     }
 
     function saveSchedule(id) {
@@ -644,14 +682,19 @@
             if (!z.edTime.value) { z.edError.textContent = t('ed.errTime'); return; }
             expr = buildCron(days, z.edTime.value);
         }
-        var hadSchedule = !!z.root.dataset.cron;
-        var enabled = hadSchedule ? z.toggle.checked : true;
+        var sid = state.editing[id];
+        var isNew = sid === 'new';
+        var sched = isNew ? null : findSchedule(id, sid);
+        var request = isNew
+            ? api('/valves/' + id + '/schedules', { method: 'POST', body: { cron_expression: expr, duration: minutes * 60, enabled: true } })
+            : api('/schedules/' + sid, { method: 'PUT', body: { cron_expression: expr, duration: minutes * 60 } });
         var btn = $('.ed-save', z.root);
         withBusy(btn, function () {
-            return postSchedule(id, expr, minutes * 60, enabled)
+            return request
                 .then(function () {
                     closeEditor(id);
-                    toast(t(enabled ? 't.saved' : 't.savedOff', { n: id, zone: zoneName(id) }));
+                    var on = isNew || (sched && sched.enabled);
+                    toast(t(isNew ? 't.added' : on ? 't.saved' : 't.savedOff', { n: id, zone: zoneName(id) }));
                     return loadDashboard();
                 })
                 .catch(function (e) { z.edError.textContent = errorText(e); });
@@ -659,8 +702,11 @@
     }
 
     function deleteSchedule(id) {
-        if (!window.confirm(t('ed.confirmDelete', { n: id, zone: zoneName(id) }))) return;
-        api('/valves/' + id + '/cron', { method: 'DELETE' })
+        var sid = state.editing[id];
+        var sched = findSchedule(id, sid);
+        if (!sched) return;
+        if (!window.confirm(t('ed.confirmDelete', { n: id, zone: zoneName(id), what: describeSchedule(sched) }))) return;
+        api('/schedules/' + sid, { method: 'DELETE' })
             .then(function () { closeEditor(id); toast(t('t.deleted', { n: id, zone: zoneName(id) })); return loadDashboard(); })
             .catch(function (e) { toast(errorText(e), true); });
     }

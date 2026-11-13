@@ -9,7 +9,7 @@
     <title>Strop · Irigații</title>
     <link rel="icon" href="favicon.png" type="image/png">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <link rel="stylesheet" href="styles.css?v=12">
+    <link rel="stylesheet" href="styles.css?v=13">
     <script>
         // Apply the saved theme before first paint (no flash)
         try {
@@ -27,6 +27,7 @@
         <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
         <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></symbol>
         <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
         <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
         <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
@@ -169,18 +170,11 @@
 
             <div class="zone-section schedule">
                 <div class="section-row">
-                    <div class="schedule-summary">
-                        <p class="ctl-label" data-i18n="zone.schedule"></p>
-                        <p class="schedule-text"></p>
-                    </div>
-                    <div class="schedule-actions">
-                        <button type="button" class="icon-btn edit-btn" data-i18n-attr="aria-label:zone.editSchedule;title:zone.editSchedule"><svg><use href="#i-edit"/></svg></button>
-                        <label class="switch" data-i18n-attr="title:zone.enableSchedule">
-                            <input type="checkbox" class="schedule-toggle" data-i18n-attr="aria-label:zone.enableSchedule">
-                            <span class="switch-track"></span>
-                        </label>
-                    </div>
+                    <p class="ctl-label" data-i18n="zone.schedules"></p>
+                    <button type="button" class="btn btn-ghost add-schedule"><svg><use href="#i-plus"/></svg><span data-i18n="zone.addSchedule"></span></button>
                 </div>
+                <p class="schedule-empty" data-i18n="sched.none"></p>
+                <ul class="schedule-list"></ul>
 
                 <div class="adjust" hidden>
                     <div class="adjust-values">
@@ -256,7 +250,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="i18n.js?v=12"></script>
-    <script src="app.js?v=12"></script>
+    <script src="i18n.js?v=13"></script>
+    <script src="app.js?v=13"></script>
 </body>
 </html>
