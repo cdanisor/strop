@@ -36,7 +36,7 @@ from .const import (
     SCAN_INTERVAL,
     WEBHOOK_NAME,
 )
-from .messages import event_message
+from .messages import event_message, zone_label
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,14 +51,35 @@ class StropCoordinator(DataUpdateCoordinator[dict]):
         self.client = client
         # manual-run durations (minutes) set through the number entities
         self.manual_minutes: dict[int, float] = {}
+        # zone names the entities were created with (None until the first refresh)
+        self._names: dict[int, str | None] | None = None
+
+    @property
+    def language(self) -> str:
+        lang = self.config_entry.options.get(CONF_LANGUAGE)
+        if lang:
+            return lang
+        return "ro" if (self.hass.config.language or "").startswith("ro") else "en"
+
+    def zone_label(self, valve_id: int) -> str:
+        return zone_label(valve_id, self.valve(valve_id).get("name"), self.language)
 
     async def _async_update_data(self) -> dict:
         try:
-            return await self.client.dashboard()
+            data = await self.client.dashboard()
         except StropAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except StropError as err:
             raise UpdateFailed(str(err)) from err
+        names = {v.get("id"): v.get("name") for v in data.get("valves", [])}
+        if self._names is None:
+            self._names = names
+        elif names != self._names:
+            # Entity names come from the zone names: reload to rename them
+            _LOGGER.info("Strop zone names changed, reloading the integration")
+            self._names = names
+            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+        return data
 
     def valve(self, valve_id: int) -> dict:
         for v in (self.data or {}).get("valves", []):
@@ -104,7 +125,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: StropConfigEntry) -> boo
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: StropConfigEntry) -> None:
-    """Options only affect notifications, read at event time; nothing to reload."""
+    """The language also sets the default zone names ("Zona N" / "Zone N")."""
+    hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: StropConfigEntry) -> bool:
@@ -127,16 +149,17 @@ async def _handle_event(hass: HomeAssistant, entry: StropConfigEntry, payload: d
     # A valve stopped by the watchdog is reported as its own event type
     kind = "watchdog" if event == "run_finished" and payload.get("status") == "watchdog" else event
 
-    hass.bus.async_fire(EVENT_STROP, {**payload, "type": kind})
     coordinator: StropCoordinator = entry.runtime_data
+    if payload.get("valve_id") is not None and not payload.get("zone_name"):
+        payload = {**payload, "zone_name": coordinator.valve(payload["valve_id"]).get("name")}
+    hass.bus.async_fire(EVENT_STROP, {**payload, "type": kind})
     await coordinator.async_request_refresh()
 
     service = entry.options.get(CONF_NOTIFY_SERVICE) or ""
     events = entry.options.get(CONF_NOTIFY_EVENTS, DEFAULT_NOTIFY_EVENTS)
     if not service or kind not in events or "." not in service:
         return
-    language = entry.options.get(CONF_LANGUAGE) or ("ro" if (hass.config.language or "").startswith("ro") else "en")
-    title, message = event_message(kind, payload, language)
+    title, message = event_message(kind, payload, coordinator.language)
     domain, name = service.split(".", 1)
     try:
         await hass.services.async_call(domain, name, {"title": title, "message": message}, blocking=False)

@@ -82,9 +82,14 @@ def reason_text(payload: dict[str, Any], lang: str) -> str:
         return template
 
 
+def zone_label(valve_id: Any, name: str | None, lang: str) -> str:
+    """Custom zone name set on Strop, or the default 'Zona N' / 'Zone N'."""
+    return name or TEXT.get(lang, TEXT["en"])["zone"].format(n=valve_id if valve_id is not None else "?")
+
+
 def event_message(kind: str, payload: dict[str, Any], lang: str) -> tuple[str, str]:
     t = TEXT.get(lang, TEXT["en"])
-    zone = t["zone"].format(n=payload.get("valve_id", "?"))
+    zone = zone_label(payload.get("valve_id"), payload.get("zone_name"), lang)
     dur = _minutes(payload.get("duration"))
     if kind == "run_started":
         if payload.get("source") == "manual":

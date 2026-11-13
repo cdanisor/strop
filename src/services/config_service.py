@@ -6,7 +6,7 @@ This service handles loading and managing system configuration.
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Optional, Dict, Any
 
 # config.json lives in the project root; resolve it independently of the CWD
 DEFAULT_CONFIG_PATH = os.environ.get("STROP_CONFIG_PATH") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config.json")
@@ -124,6 +124,27 @@ class ConfigService:
         # Save to file
         self._save_config()
     
+    MAX_ZONE_NAME = 32
+
+    def zone_names(self) -> Dict[str, str]:
+        """Custom zone names, keyed by valve id as string ('1', '2')."""
+        names = self.config.get('zone_names') or {}
+        return {str(k): str(v) for k, v in names.items() if v}
+
+    def zone_name(self, valve_id: int) -> Optional[str]:
+        return self.zone_names().get(str(valve_id))
+
+    def set_zone_name(self, valve_id: int, name: Optional[str]) -> Optional[str]:
+        """Set (or clear, with an empty name) a zone's name; returns the stored name."""
+        name = ' '.join(str(name or '').split())[:self.MAX_ZONE_NAME]
+        names = self.zone_names()
+        if name:
+            names[str(valve_id)] = name
+        else:
+            names.pop(str(valve_id), None)
+        self.update('zone_names', names)
+        return name or None
+
     def _save_config(self) -> None:
         """
         Save current configuration to file.

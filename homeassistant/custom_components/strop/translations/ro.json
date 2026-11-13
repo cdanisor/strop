@@ -62,21 +62,21 @@
   },
   "entity": {
     "binary_sensor": {
-      "watering": { "name": "Zona {zone} udă" }
+      "watering": { "name": "{zone} udă" }
     },
     "number": {
-      "manual_duration": { "name": "Zona {zone} durată manuală" }
+      "manual_duration": { "name": "{zone} durată manuală" }
     },
     "sensor": {
-      "remaining": { "name": "Zona {zone} timp rămas" },
-      "next_run": { "name": "Zona {zone} următoarea udare" },
+      "remaining": { "name": "{zone} timp rămas" },
+      "next_run": { "name": "{zone} următoarea udare" },
       "adjustment": { "name": "Ajustare după vreme" },
       "watered_today": { "name": "Udat azi" },
       "weather_updated": { "name": "Prognoză actualizată" }
     },
     "switch": {
-      "valve": { "name": "Zona {zone}" },
-      "schedule": { "name": "Zona {zone} program" }
+      "valve": { "name": "{zone}" },
+      "schedule": { "name": "{zone} program" }
     }
   }
 }

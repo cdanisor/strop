@@ -220,6 +220,15 @@ svg { display: block; }
 .zone-name::before {
     content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--zone-color);
 }
+.zone-title { overflow-wrap: anywhere; }
+.rename-btn {
+    display: inline-flex; padding: 4px; border: 0; border-radius: 6px; background: none;
+    color: var(--faint); cursor: pointer; opacity: .7;
+}
+.rename-btn:hover, .rename-btn:focus-visible { color: var(--text); opacity: 1; }
+.rename-btn svg { width: 14px; height: 14px; }
+.rename-form { margin: 0 0 2px; }
+.rename-input { font-size: 16px; font-weight: 600; padding: 6px 10px; width: min(100%, 260px); }
 .zone-next { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
 .pill {

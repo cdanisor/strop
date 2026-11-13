@@ -72,6 +72,8 @@ class Notifier:
             if not hooks:
                 return
             payload = {'event': event, 'time': datetime.now().astimezone().isoformat(), **data}
+            if 'valve_id' in data and hasattr(self.config_service, 'zone_name'):
+                payload.setdefault('zone_name', self.config_service.zone_name(data['valve_id']))
             for hook in hooks:
                 self._queue.put_nowait((hook.get('url'), payload))
         except queue.Full:

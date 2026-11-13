@@ -20,7 +20,8 @@ class StropEntity(CoordinatorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{suffix}"
         self._attr_translation_key = key
         if valve_id:
-            self._attr_translation_placeholders = {"zone": str(valve_id)}
+            # Zone name set in the Strop UI; the entry is reloaded when it changes
+            self._attr_translation_placeholders = {"zone": coordinator.zone_label(valve_id)}
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Strop",

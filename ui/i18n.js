@@ -53,6 +53,8 @@
 
             // zone
             'zone.name': 'Zona {n}',
+            'zone.rename': 'Redenumește zona',
+            't.renamed': 'Zona se numește acum „{zone}”',
             'zone.watering': 'Udă',
             'zone.idle': 'Inactivă',
             'zone.next': 'Următoarea: {day} la {time} · {what}',
@@ -66,8 +68,8 @@
             'zone.remaining': 'rămas',
             'zone.off': 'Oprit',
             'zone.closed': 'supapă închisă',
-            'zone.ariaRemaining': 'Zona {n}: încă {time}',
-            'zone.ariaClosed': 'Zona {n}: supapă închisă',
+            'zone.ariaRemaining': '{zone}: încă {time}',
+            'zone.ariaClosed': '{zone}: supapă închisă',
             'zone.minutes': 'Minute',
             'zone.duration': 'Durată',
             'zone.schedule': 'Program',
@@ -95,7 +97,7 @@
             'ed.errDuration': 'Durata trebuie să fie între 1 și {max} minute.',
             'ed.errDays': 'Alege cel puțin o zi.',
             'ed.errTime': 'Alege ora de start.',
-            'ed.confirmDelete': 'Ștergi programul pentru Zona {n}?',
+            'ed.confirmDelete': 'Ștergi programul pentru {zone}?',
 
             // history
             'h.finished': 'Finalizat', 'h.stopped': 'Oprit manual', 'h.terminated': 'Întrerupt',
@@ -105,13 +107,13 @@
 
             // toasts
             't.minutes': 'Alege între 1 și {max} minute',
-            't.started': 'Zona {n} udă {min} min',
-            't.stopped': 'Zona {n} oprită',
-            't.scheduleOn': 'Programul Zonei {n} e pornit',
-            't.scheduleOff': 'Programul Zonei {n} e oprit',
-            't.saved': 'Programul Zonei {n} a fost salvat',
-            't.savedOff': 'Programul Zonei {n} a fost salvat (oprit)',
-            't.deleted': 'Programul Zonei {n} a fost șters',
+            't.started': '{zone} udă {min} min',
+            't.stopped': '{zone} oprită',
+            't.scheduleOn': 'Programul pentru {zone} e pornit',
+            't.scheduleOff': 'Programul pentru {zone} e oprit',
+            't.saved': 'Programul pentru {zone} a fost salvat',
+            't.savedOff': 'Programul pentru {zone} a fost salvat (oprit)',
+            't.deleted': 'Programul pentru {zone} a fost șters',
 
             // weather strip
             'w.title': 'Vreme și udare',
@@ -215,6 +217,8 @@
             'stat.rain': 'Rain next 3 days',
 
             'zone.name': 'Zone {n}',
+            'zone.rename': 'Rename zone',
+            't.renamed': 'Zone renamed to “{zone}”',
             'zone.watering': 'Watering',
             'zone.idle': 'Idle',
             'zone.next': 'Next: {day} at {time} · {what}',
@@ -228,8 +232,8 @@
             'zone.remaining': 'remaining',
             'zone.off': 'Off',
             'zone.closed': 'valve closed',
-            'zone.ariaRemaining': 'Zone {n}: {time} remaining',
-            'zone.ariaClosed': 'Zone {n}: valve closed',
+            'zone.ariaRemaining': '{zone}: {time} remaining',
+            'zone.ariaClosed': '{zone}: valve closed',
             'zone.minutes': 'Minutes',
             'zone.duration': 'Duration',
             'zone.schedule': 'Schedule',
@@ -255,7 +259,7 @@
             'ed.errDuration': 'Duration must be between 1 and {max} minutes.',
             'ed.errDays': 'Pick at least one day.',
             'ed.errTime': 'Pick a start time.',
-            'ed.confirmDelete': 'Delete the schedule for Zone {n}?',
+            'ed.confirmDelete': 'Delete the schedule for {zone}?',
 
             'h.finished': 'Completed', 'h.stopped': 'Stopped', 'h.terminated': 'Interrupted',
             'h.running': 'Running', 'h.skipped': 'Skipped', 'h.watchdog': 'Watchdog stopped',
@@ -263,13 +267,13 @@
             'h.pctOf': '{pct}% of {base}',
 
             't.minutes': 'Choose between 1 and {max} minutes',
-            't.started': 'Zone {n} watering for {min} min',
-            't.stopped': 'Zone {n} stopped',
-            't.scheduleOn': 'Zone {n} schedule on',
-            't.scheduleOff': 'Zone {n} schedule off',
-            't.saved': 'Zone {n} schedule saved',
-            't.savedOff': 'Zone {n} schedule saved (off)',
-            't.deleted': 'Zone {n} schedule deleted',
+            't.started': '{zone} watering for {min} min',
+            't.stopped': '{zone} stopped',
+            't.scheduleOn': '{zone} schedule on',
+            't.scheduleOff': '{zone} schedule off',
+            't.saved': '{zone} schedule saved',
+            't.savedOff': '{zone} schedule saved (off)',
+            't.deleted': '{zone} schedule deleted',
 
             'w.title': 'Weather & watering',
             'w.updated': 'Forecast updated {day} at {time}',

@@ -25,6 +25,7 @@
     var WEEK = [1, 2, 3, 4, 5, 6, 0];
 
     var state = {
+        names: {},           // valve id -> custom zone name (from the controller)
         dashboard: null,
         statusKey: null,
         lastDashboardAt: 0,
@@ -96,7 +97,8 @@
         var d = new Date(String(s).replace(' ', 'T'));
         return isNaN(d) ? null : d;
     }
-    function zoneName(id) { return t('zone.name', { n: id }); }
+    function defaultZoneName(id) { return t('zone.name', { n: id }); }
+    function zoneName(id) { return state.names[id] || defaultZoneName(id); }
 
     // ------------------------------------------------------------------ reasons & errors (backend codes)
     function reasonText(key, args, fallback) {
@@ -283,6 +285,9 @@
             id: id,
             root: node,
             name: $('.zone-name', node),
+            title: $('.zone-title', node),
+            renameForm: $('.rename-form', node),
+            renameInput: $('.rename-input', node),
             next: $('.zone-next', node),
             pill: $('.pill', node),
             dial: $('.dial', node),
@@ -341,6 +346,10 @@
 
         refs.toggle.addEventListener('change', function () { toggleSchedule(id, refs.toggle.checked); });
         refs.edit.addEventListener('click', function () { openEditor(id); });
+        $('.rename-btn', node).addEventListener('click', function () { openRename(id); });
+        refs.renameForm.addEventListener('submit', function (e) { e.preventDefault(); saveRename(id); });
+        refs.renameInput.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeRename(id); });
+        refs.renameInput.addEventListener('blur', function () { if (!refs.renameForm.hidden) saveRename(id); });
 
         refs.dayChips.addEventListener('click', function (e) {
             var chip = e.target.closest('.chip');
@@ -364,7 +373,8 @@
     // Texts of a zone card that do not depend on data
     function translateZone(z) {
         I18N.apply(z.root);
-        z.name.textContent = zoneName(z.id);
+        z.title.textContent = zoneName(z.id);
+        z.renameInput.placeholder = defaultZoneName(z.id);
         var names = t('days.short');
         $all('.chip', z.dayChips).forEach(function (c) { c.textContent = names[Number(c.dataset.dow)]; });
         tickZone(z.id);
@@ -373,6 +383,10 @@
     function renderZone(v) {
         var z = state.zones[v.id] || createZone(v.id);
         var schedule = v.schedule || {};
+        if ((v.name || null) !== (state.names[v.id] || null)) {
+            state.names[v.id] = v.name || null;
+            z.title.textContent = zoneName(v.id);
+        }
         z.root.classList.toggle('is-open', !!v.open);
         z.pill.textContent = v.open ? t('zone.watering') : t('zone.idle');
 
@@ -435,7 +449,7 @@
             z.bar.style.strokeDashoffset = String(DIAL_LENGTH * (1 - frac));
             z.time.textContent = fmtClock(left);
             z.label.textContent = t('zone.remaining');
-            z.dial.setAttribute('aria-label', t('zone.ariaRemaining', { n: id, time: fmtDuration(left) }));
+            z.dial.setAttribute('aria-label', t('zone.ariaRemaining', { n: id, zone: zoneName(id), time: fmtDuration(left) }));
             if (left <= 0 && !state.busy['expire' + id]) {
                 // timer ended on the controller: confirm shortly after
                 state.busy['expire' + id] = true;
@@ -445,7 +459,7 @@
             z.bar.style.strokeDashoffset = String(DIAL_LENGTH);
             z.time.textContent = t('zone.off');
             z.label.textContent = t('zone.closed');
-            z.dial.setAttribute('aria-label', t('zone.ariaClosed', { n: id }));
+            z.dial.setAttribute('aria-label', t('zone.ariaClosed', { n: id, zone: zoneName(id) }));
         }
     }
 
@@ -501,16 +515,45 @@
         }
         withBusy(z.start, function () {
             return api('/valves/' + id + '/activate', { method: 'POST', body: { duration: minutes * 60 } })
-                .then(function () { toast(t('t.started', { n: id, min: minutes })); return loadDashboard(); })
+                .then(function () { toast(t('t.started', { n: id, zone: zoneName(id), min: minutes })); return loadDashboard(); })
                 .catch(function (e) { toast(errorText(e), true); return loadDashboard(); });
         });
+    }
+
+    // ------------------------------------------------------------------ rename
+    function openRename(id) {
+        var z = state.zones[id];
+        z.renameInput.value = state.names[id] || '';
+        z.name.hidden = true;
+        z.renameForm.hidden = false;
+        z.renameInput.focus();
+        z.renameInput.select();
+    }
+    function closeRename(id) {
+        var z = state.zones[id];
+        z.renameForm.hidden = true;
+        z.name.hidden = false;
+    }
+    function saveRename(id) {
+        var z = state.zones[id];
+        var name = z.renameInput.value.replace(/\s+/g, ' ').trim();
+        closeRename(id);
+        if (name === (state.names[id] || '')) return;
+        api('/valves/' + id + '/name', { method: 'PUT', body: { name: name } })
+            .then(function (r) {
+                state.names[id] = r.name || null;
+                z.title.textContent = zoneName(id);
+                toast(t('t.renamed', { zone: zoneName(id) }));
+                return loadDashboard();
+            })
+            .catch(function (e) { toast(errorText(e), true); });
     }
 
     function stopValve(id) {
         var z = state.zones[id];
         withBusy(z.stop, function () {
             return api('/valves/' + id + '/deactivate', { method: 'POST' })
-                .then(function () { toast(t('t.stopped', { n: id })); return loadDashboard(); })
+                .then(function () { toast(t('t.stopped', { n: id, zone: zoneName(id) })); return loadDashboard(); })
                 .catch(function (e) { toast(errorText(e), true); return loadDashboard(); });
         });
     }
@@ -529,7 +572,7 @@
         state.busy['toggle' + id] = true;
         z.toggle.disabled = true;
         postSchedule(id, expr, Number(z.root.dataset.duration) || 300, enabled)
-            .then(function () { toast(t(enabled ? 't.scheduleOn' : 't.scheduleOff', { n: id })); })
+            .then(function () { toast(t(enabled ? 't.scheduleOn' : 't.scheduleOff', { n: id, zone: zoneName(id) })); })
             .catch(function (e) { z.toggle.checked = !enabled; toast(errorText(e), true); })
             .then(function () { state.busy['toggle' + id] = false; return loadDashboard(); });
     }
@@ -608,7 +651,7 @@
             return postSchedule(id, expr, minutes * 60, enabled)
                 .then(function () {
                     closeEditor(id);
-                    toast(t(enabled ? 't.saved' : 't.savedOff', { n: id }));
+                    toast(t(enabled ? 't.saved' : 't.savedOff', { n: id, zone: zoneName(id) }));
                     return loadDashboard();
                 })
                 .catch(function (e) { z.edError.textContent = errorText(e); });
@@ -616,9 +659,9 @@
     }
 
     function deleteSchedule(id) {
-        if (!window.confirm(t('ed.confirmDelete', { n: id }))) return;
+        if (!window.confirm(t('ed.confirmDelete', { n: id, zone: zoneName(id) }))) return;
         api('/valves/' + id + '/cron', { method: 'DELETE' })
-            .then(function () { closeEditor(id); toast(t('t.deleted', { n: id })); return loadDashboard(); })
+            .then(function () { closeEditor(id); toast(t('t.deleted', { n: id, zone: zoneName(id) })); return loadDashboard(); })
             .catch(function (e) { toast(errorText(e), true); });
     }
 

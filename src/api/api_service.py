@@ -674,6 +674,23 @@ class APIService:
     
         # Route for the whole dashboard in one request (cheap for the Pi:
         # the UI polls only /api/valves/status and calls this on changes)
+        @self.app.route('/api/valves/<int:valve_id>/name', methods=['PUT', 'POST'])
+        def set_valve_name(valve_id):
+            """Rename a zone; an empty name restores the default ("Zona N")."""
+            from src.main_service import main_service
+            if valve_id not in [1, 2]:
+                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            payload = request.get_json(silent=True) or {}
+            if not isinstance(payload.get('name', ''), str):
+                return jsonify({'error': 'name must be a string'}), 400
+            try:
+                name = main_service.config_service.set_zone_name(valve_id, payload.get('name'))
+            except Exception as e:
+                logger.error(f"Error renaming valve {valve_id}: {e}")
+                return jsonify({'success': False, 'message': 'Could not save the name'}), 500
+            logger.info(f"Valve {valve_id} renamed to {name!r}")
+            return jsonify({'success': True, 'valve_id': valve_id, 'name': name}), 200
+
         @self.app.route('/api/dashboard', methods=['GET'])
         def get_dashboard():
             """Valves (state, schedule, next runs, history), usage and weather."""
@@ -733,6 +750,7 @@ class APIService:
                     ]
                     valves.append({
                         'id': valve_id,
+                        'name': main_service.config_service.zone_name(valve_id),
                         **details,
                         'schedule': {
                             'cron_expression': cron.get('cron_expression') or '',

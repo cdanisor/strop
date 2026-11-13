@@ -62,21 +62,21 @@
   },
   "entity": {
     "binary_sensor": {
-      "watering": { "name": "Zone {zone} watering" }
+      "watering": { "name": "{zone} watering" }
     },
     "number": {
-      "manual_duration": { "name": "Zone {zone} manual duration" }
+      "manual_duration": { "name": "{zone} manual duration" }
     },
     "sensor": {
-      "remaining": { "name": "Zone {zone} remaining" },
-      "next_run": { "name": "Zone {zone} next run" },
+      "remaining": { "name": "{zone} remaining" },
+      "next_run": { "name": "{zone} next run" },
       "adjustment": { "name": "Weather adjustment" },
       "watered_today": { "name": "Watered today" },
       "weather_updated": { "name": "Forecast updated" }
     },
     "switch": {
-      "valve": { "name": "Zone {zone}" },
-      "schedule": { "name": "Zone {zone} schedule" }
+      "valve": { "name": "{zone}" },
+      "schedule": { "name": "{zone} schedule" }
     }
   }
 }

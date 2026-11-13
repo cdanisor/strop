@@ -9,7 +9,7 @@
     <title>Strop · Irigații</title>
     <link rel="icon" href="favicon.png" type="image/png">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <link rel="stylesheet" href="styles.css?v=10">
+    <link rel="stylesheet" href="styles.css?v=12">
     <script>
         // Apply the saved theme before first paint (no flash)
         try {
@@ -116,7 +116,10 @@
         <article class="zone">
             <header class="zone-head">
                 <div>
-                    <h2 class="zone-name"></h2>
+                    <h2 class="zone-name"><span class="zone-title"></span><button type="button" class="rename-btn" data-i18n-attr="aria-label:zone.rename;title:zone.rename"><svg><use href="#i-edit"/></svg></button></h2>
+                    <form class="rename-form" hidden>
+                        <input class="input rename-input" type="text" maxlength="32" autocomplete="off" data-i18n-attr="aria-label:zone.rename">
+                    </form>
                     <p class="zone-next"></p>
                 </div>
                 <span class="pill"></span>
@@ -253,7 +256,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="i18n.js?v=10"></script>
-    <script src="app.js?v=10"></script>
+    <script src="i18n.js?v=12"></script>
+    <script src="app.js?v=12"></script>
 </body>
 </html>

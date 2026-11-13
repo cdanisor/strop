@@ -258,3 +258,43 @@ def test_next_run_text():
     assert m.next_run_text(on, datetime(2026, 11, 13, 5, 35), today, 'en') == 'tomorrow, 05:35 · 6 min'
     skipped = dict(on, planned=[dict(plan, skip=True, reason_key='not_needed', reason_args={'factor': 'rain'})])
     assert m.next_run_text(skipped, datetime(2026, 11, 12, 6, 0), today, 'ro') == 'azi, 06:00 · sărită (ploaie)'
+
+
+# ----------------------------------------------------------------- zone names
+def test_zone_names_in_config(cfg):
+    assert cfg.zone_name(1) is None
+    assert cfg.set_zone_name(1, '  Grădina   din  față ') == 'Grădina din față'
+    assert cfg.zone_name(1) == 'Grădina din față'
+    assert cfg.set_zone_name(2, 'x' * 50) == 'x' * 32
+    assert cfg.set_zone_name(1, '') is None and cfg.zone_name(1) is None
+    assert ConfigService(cfg.config_path).zone_names() == {'2': 'x' * 32}
+
+
+def test_events_carry_zone_name(cfg, receiver):
+    cfg.set_zone_name(1, 'Gazon')
+    notifier = Notifier(cfg)
+    notifier.set_webhook('home-assistant', receiver.url)
+    notifier.valve_event('opened', 1, duration=60)
+    notifier.valve_event('opened', 2, duration=60)
+    notifier.flush()
+    assert [e.get('zone_name') for e in receiver.received] == ['Gazon', None]
+
+
+def test_api_rename_zone(client):
+    r = client.put('/api/valves/1/name', json={'name': 'Grădina'})
+    assert r.status_code == 200 and r.get_json()['name'] == 'Grădina'
+    valves = {v['id']: v for v in client.get('/api/dashboard').get_json()['valves']}
+    assert valves[1]['name'] == 'Grădina' and valves[2]['name'] is None
+    assert client.put('/api/valves/3/name', json={'name': 'x'}).status_code == 400
+    assert client.put('/api/valves/1/name', json={'name': 5}).status_code == 400
+    assert client.put('/api/valves/1/name', json={'name': ''}).get_json()['name'] is None
+    from src.api.api_service import api_service
+    assert api_service.app.test_client().put('/api/valves/1/name', json={'name': 'x'}).status_code == 401
+
+
+def test_ha_zone_label():
+    m = _messages()
+    assert m.zone_label(1, None, 'ro') == 'Zona 1' and m.zone_label(2, None, 'en') == 'Zone 2'
+    assert m.zone_label(1, 'Gazon', 'ro') == 'Gazon'
+    _, msg = m.event_message('run_finished', {'valve_id': 1, 'zone_name': 'Gazon', 'duration': 300}, 'ro')
+    assert msg == 'Gazon a terminat de udat (5 min).'
