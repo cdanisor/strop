@@ -20,8 +20,10 @@ The system uses a JSON configuration file to store settings that should not be c
     "update_interval_minutes": 360
   },
   "gpio": {
-    "valve1_pin": 23,
-    "valve2_pin": 24
+    "zones": [
+      {"id": 1, "pin": 23},
+      {"id": 2, "pin": 24}
+    ]
   },
   "system": {
     "default_duration_seconds": 30,
@@ -37,9 +39,30 @@ The system uses a JSON configuration file to store settings that should not be c
 - `location`: Location for weather data (default: Bucharest, Romania)
 - `update_interval_minutes`: How often to fetch weather data in minutes
 
-### GPIO Configuration
-- `valve1_pin`: GPIO pin number for valve 1 (default: 23)
-- `valve2_pin`: GPIO pin number for valve 2 (default: 24)
+### GPIO Configuration (zones)
+`gpio.zones` lists the irrigation zones, each with its `id` and the relay's
+GPIO `pin` (BCM numbering, 2-27). Add or remove zones only by editing
+`config.json`, then restart the API (`sudo systemctl restart strop-api`); the
+UI and Home Assistant pick the new list up on their own.
+
+```json
+"gpio": {
+  "zones": [
+    {"id": 1, "pin": 23},
+    {"id": 2, "pin": 24},
+    {"id": 3, "pin": 25}
+  ]
+}
+```
+
+- Up to 16 zones, ids 1-99. Ids and pins must be unique; otherwise the API
+  refuses to start (see `journalctl -u strop-api`) instead of driving the
+  wrong relay.
+- Removing a zone keeps its history and schedules in the database (they are
+  simply not run); adding the same id back restores them. Home Assistant
+  deletes the entities of removed zones.
+- Zone names are set from the UI (stored under `zone_names`).
+- Older configs with `valve1_pin`, `valve2_pin`, ... keep working.
 
 ### System Configuration
 - `default_duration_seconds`: Default manual activation duration in seconds
@@ -118,8 +141,10 @@ When a request is received:
     "update_interval_minutes": 360
   },
   "gpio": {
-    "valve1_pin": 23,
-    "valve2_pin": 24
+    "zones": [
+      {"id": 1, "pin": 23},
+      {"id": 2, "pin": 24}
+    ]
   },
   "system": {
     "default_duration_seconds": 30,

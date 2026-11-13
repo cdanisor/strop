@@ -9,14 +9,14 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api import StropError
-from .const import DEFAULT_MANUAL_MINUTES, VALVES
+from .const import DEFAULT_MANUAL_MINUTES
 from .entity import StropEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
     entities: list[SwitchEntity] = []
-    for valve_id in VALVES:
+    for valve_id in coordinator.zone_ids:
         entities.append(StropValveSwitch(coordinator, valve_id))
         entities.append(StropScheduleSwitch(coordinator, valve_id))
     async_add_entities(entities)

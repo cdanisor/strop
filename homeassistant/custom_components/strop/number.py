@@ -7,13 +7,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DEFAULT_MANUAL_MINUTES, VALVES
+from .const import DEFAULT_MANUAL_MINUTES
 from .entity import StropEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(StropManualDuration(coordinator, v) for v in VALVES)
+    async_add_entities(StropManualDuration(coordinator, v) for v in coordinator.zone_ids)
 
 
 class StropManualDuration(StropEntity, RestoreNumber):

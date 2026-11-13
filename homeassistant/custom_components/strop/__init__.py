@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from aiohttp import web
@@ -18,6 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -34,6 +36,7 @@ from .const import (
     DOMAIN,
     EVENT_STROP,
     SCAN_INTERVAL,
+    VALVES,
     WEBHOOK_NAME,
 )
 from .messages import event_message, zone_label
@@ -61,6 +64,12 @@ class StropCoordinator(DataUpdateCoordinator[dict]):
             return lang
         return "ro" if (self.hass.config.language or "").startswith("ro") else "en"
 
+    @property
+    def zone_ids(self) -> list[int]:
+        """Zones reported by the controller (any number, set in its config.json)."""
+        ids = [v.get("id") for v in (self.data or {}).get("valves", []) if v.get("id") is not None]
+        return ids or list(VALVES)
+
     def zone_label(self, valve_id: int) -> str:
         return zone_label(valve_id, self.valve(valve_id).get("name"), self.language)
 
@@ -75,8 +84,9 @@ class StropCoordinator(DataUpdateCoordinator[dict]):
         if self._names is None:
             self._names = names
         elif names != self._names:
-            # Entity names come from the zone names: reload to rename them
-            _LOGGER.info("Strop zone names changed, reloading the integration")
+            # Entity names come from the zone names and there is one set of
+            # entities per zone: reload when zones are renamed, added or removed
+            _LOGGER.info("Strop zones changed, reloading the integration")
             self._names = names
             self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
         return data
@@ -88,11 +98,23 @@ class StropCoordinator(DataUpdateCoordinator[dict]):
         return {}
 
 
+def _remove_entities_of_removed_zones(hass: HomeAssistant, entry: ConfigEntry, zone_ids: list[int]) -> None:
+    """Drop the entities of zones no longer present in the controller's config.json."""
+    registry = er.async_get(hass)
+    pattern = re.compile(rf"^{re.escape(entry.entry_id)}_zone(\d+)_")
+    for item in er.async_entries_for_config_entry(registry, entry.entry_id):
+        m = pattern.match(item.unique_id or "")
+        if m and int(m.group(1)) not in zone_ids:
+            _LOGGER.info("Strop zone %s was removed, deleting %s", m.group(1), item.entity_id)
+            registry.async_remove(item.entity_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: StropConfigEntry) -> bool:
     client = StropClient(async_get_clientsession(hass), entry.data[CONF_URL], entry.data[CONF_TOKEN])
     coordinator = StropCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    _remove_entities_of_removed_zones(hass, entry, coordinator.zone_ids)
 
     # Webhook for push events from Strop
     webhook_id = entry.data.get(CONF_WEBHOOK_ID)

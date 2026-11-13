@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Force both valve relays OFF.
+Force all valve relays OFF.
 
 Run by systemd as ExecStopPost of strop-api, i.e. after every stop, crash or
 watchdog kill, so a valve can never stay open while the service is down.
@@ -12,13 +12,33 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 
-def main() -> int:
+def collect_pins() -> list:
+    """Pins of all configured zones. When the config is broken, every pin
+    that can still be read from it (plus the defaults) is switched off: when
+    in doubt, more relays OFF is the safe side."""
+    from src.services.config_service import ConfigService, DEFAULT_ZONES, VALID_PINS, parse_zones
     try:
-        from src.services.config_service import ConfigService
-        gpio_cfg = ConfigService().get('gpio', {}) or {}
+        config = ConfigService().get_all()
     except Exception:
-        gpio_cfg = {}
-    pins = [gpio_cfg.get('valve1_pin', 23), gpio_cfg.get('valve2_pin', 24)]
+        return sorted(DEFAULT_ZONES.values())
+    try:
+        return sorted(parse_zones(config).values())
+    except Exception:
+        pins = set(DEFAULT_ZONES.values())
+        gpio = config.get('gpio') if isinstance(config.get('gpio'), dict) else {}
+        candidates = [z.get('pin') for z in gpio.get('zones') or [] if isinstance(z, dict)]
+        candidates += [v for k, v in gpio.items() if k.startswith('valve') and k.endswith('_pin')]
+        for pin in candidates:
+            try:
+                if int(pin) in VALID_PINS:
+                    pins.add(int(pin))
+            except (TypeError, ValueError):
+                pass
+        return sorted(pins)
+
+
+def main() -> int:
+    pins = collect_pins()
     try:
         import RPi.GPIO as GPIO
     except ImportError:

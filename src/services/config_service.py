@@ -5,10 +5,81 @@ This service handles loading and managing system configuration.
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 # config.json lives in the project root; resolve it independently of the CWD
+MAX_ZONES = 16
+MAX_ZONE_ID = 99
+# BCM numbers of the header GPIOs usable as outputs
+VALID_PINS = range(2, 28)
+DEFAULT_ZONES = {1: 23, 2: 24}
+
+
+class ZoneConfigError(ValueError):
+    """config.json describes the zones in a way that cannot be used safely."""
+
+
+def _as_int(value, what):
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ZoneConfigError(f"{what} must be a whole number, got {value!r}")
+    try:
+        return int(value)
+    except ValueError:
+        raise ZoneConfigError(f"{what} must be a whole number, got {value!r}")
+
+
+def parse_zones(config: Dict[str, Any]) -> Dict[int, int]:
+    """
+    Zones from config.json as {zone id: BCM pin}, sorted by id.
+
+    New format (any number of zones, edited by hand):
+        "gpio": {"zones": [{"id": 1, "pin": 23}, {"id": 2, "pin": 24}, {"id": 3, "pin": 25}]}
+    Old format (still read): "gpio": {"valve1_pin": 23, "valve2_pin": 24, ...}
+    Without either, the two default zones (GPIO 23 and 24) are used.
+
+    Raises ZoneConfigError for duplicate ids or pins, ids outside 1..99,
+    pins outside 2..27 or more than MAX_ZONES zones, so a typo can never
+    drive the wrong relay.
+    """
+    gpio = (config or {}).get('gpio') or {}
+    if not isinstance(gpio, dict):
+        raise ZoneConfigError("'gpio' must be an object")
+    zones: Dict[int, int] = {}
+    if 'zones' in gpio:
+        items = gpio['zones']
+        if not isinstance(items, list) or not items:
+            raise ZoneConfigError("'gpio.zones' must be a non-empty list")
+        for item in items:
+            if not isinstance(item, dict) or 'id' not in item or 'pin' not in item:
+                raise ZoneConfigError(f"each zone needs an 'id' and a 'pin', got {item!r}")
+            zone_id = _as_int(item['id'], 'zone id')
+            if zone_id in zones:
+                raise ZoneConfigError(f"zone {zone_id} is defined twice")
+            zones[zone_id] = _as_int(item['pin'], f'pin of zone {zone_id}')
+    else:
+        for key, value in gpio.items():
+            m = re.fullmatch(r'valve(\d+)_pin', key)
+            if m:
+                zones[int(m.group(1))] = _as_int(value, key)
+        if not zones:
+            zones = dict(DEFAULT_ZONES)
+
+    if len(zones) > MAX_ZONES:
+        raise ZoneConfigError(f"at most {MAX_ZONES} zones are supported, got {len(zones)}")
+    pins_seen = {}
+    for zone_id, pin in zones.items():
+        if not 1 <= zone_id <= MAX_ZONE_ID:
+            raise ZoneConfigError(f"zone id {zone_id} must be between 1 and {MAX_ZONE_ID}")
+        if pin not in VALID_PINS:
+            raise ZoneConfigError(f"GPIO {pin} of zone {zone_id} is not a usable BCM pin (2-27)")
+        if pin in pins_seen:
+            raise ZoneConfigError(f"GPIO {pin} is used by zones {pins_seen[pin]} and {zone_id}")
+        pins_seen[pin] = zone_id
+    return dict(sorted(zones.items()))
+
+
 DEFAULT_CONFIG_PATH = os.environ.get("STROP_CONFIG_PATH") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config.json")
 
 class ConfigService:
@@ -57,8 +128,7 @@ class ConfigService:
                 "update_interval_minutes": 360
             },
             "gpio": {
-                "valve1_pin": 23,
-                "valve2_pin": 24
+                "zones": [{"id": zone_id, "pin": pin} for zone_id, pin in DEFAULT_ZONES.items()]
             },
             "system": {
                 "default_duration_seconds": 30,
@@ -126,8 +196,21 @@ class ConfigService:
     
     MAX_ZONE_NAME = 32
 
+    def zones(self) -> Dict[int, int]:
+        """Configured zones as {zone id: BCM pin} (see parse_zones)."""
+        return parse_zones(self.config)
+
+    def zone_ids(self) -> list:
+        return list(self.zones())
+
+    def has_zone(self, valve_id: int) -> bool:
+        try:
+            return valve_id in self.zones()
+        except ZoneConfigError:
+            return False
+
     def zone_names(self) -> Dict[str, str]:
-        """Custom zone names, keyed by valve id as string ('1', '2')."""
+        """Custom zone names, keyed by zone id as string ('1', '2', ...)."""
         names = self.config.get('zone_names') or {}
         return {str(k): str(v) for k, v in names.items() if v}
 

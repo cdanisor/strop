@@ -20,7 +20,8 @@
     var DASHBOARD_REFRESH_MS = 5 * 60 * 1000;
     var MAX_MINUTES = 60;
     var DIAL_LENGTH = 326.73; // circumference of the dial ring (r = 52)
-    var VALVES = [1, 2];
+    var VALVES = [];       // zone ids, from the dashboard (configured in config.json)
+    var ZONE_COLORS = 6;
     // Display order Monday..Sunday with standard cron numbers (0 = Sunday)
     var WEEK = [1, 2, 3, 4, 5, 6, 0];
 
@@ -281,7 +282,9 @@
     }
 
     // ------------------------------------------------------------------ zones
-    function zoneColor(id) { return id === 1 ? 'var(--z1)' : 'var(--z2)'; }
+    // colour slot 1..6 of a zone, repeating after six zones
+    function zoneSlot(id) { return ((Number(id) - 1) % ZONE_COLORS + ZONE_COLORS) % ZONE_COLORS + 1; }
+    function zoneColor(id) { return 'var(--z' + zoneSlot(id) + ')'; }
 
     function createZone(id) {
         var node = document.importNode($('#zone-template').content, true).firstElementChild;
@@ -837,7 +840,7 @@
             html += '<div class="day-water">';
             VALVES.forEach(function (id) {
                 var sec = (d.usage[id] || {})[key];
-                if (sec) html += '<span class="tag tag-z' + id + '">Z' + id + ' ' + minutesShort(sec) + '</span>';
+                if (sec) html += '<span class="tag tag-z' + zoneSlot(id) + '">Z' + id + ' ' + minutesShort(sec) + '</span>';
             });
             (planned[key] || []).forEach(function (p) {
                 if (i < 0 || p.at < new Date()) return;
@@ -851,6 +854,10 @@
         }
         var box = $('#days');
         box.innerHTML = html;
+        $('#legend-zones').innerHTML = VALVES.map(function (id) {
+            return '<span><i class="sw" style="background:' + zoneColor(id) + '"></i>' +
+                escapeHtml(t('w.legendZone', { zone: (state.names[id] ? 'Z' + id + ' · ' : '') + zoneName(id) })) + '</span>';
+        }).join('');
 
         var updated = parseDate(d.weather_updated);
         $('#weather-note').textContent = updated ? t('w.updated', { day: phraseDay(updated), time: hhmm(updated) }) : '';
@@ -908,8 +915,24 @@
     }
 
     // ------------------------------------------------------------------ rendering
-    function renderAll(d) {
+    // Keep the zone cards in step with the zones the controller reports
+    function syncZones(d) {
+        VALVES = d.valves.map(function (v) { return v.id; });
+        Object.keys(state.zones).forEach(function (key) {
+            var id = Number(key);
+            if (VALVES.indexOf(id) >= 0) return;
+            state.zones[key].root.remove();
+            delete state.zones[key];
+            delete state.timers[key];
+            delete state.editing[key];
+        });
         d.valves.forEach(renderZone);
+        var box = $('#zones');
+        VALVES.forEach(function (id) { box.appendChild(state.zones[id].root); });
+    }
+
+    function renderAll(d) {
+        syncZones(d);
         renderOverview(d);
         renderAdjustPanel(d);
         renderDays(d);
@@ -1043,7 +1066,6 @@
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden && !state.locked) loadDashboard();
     });
-    VALVES.forEach(createZone);
     applyLanguage();
     if (getToken()) loadDashboard(); else showLogin();
     setInterval(pollStatus, STATUS_POLL_MS);

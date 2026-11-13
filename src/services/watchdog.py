@@ -105,7 +105,7 @@ class Watchdog:
         if gpio is None:
             return []
         closed = []
-        for valve_id in (1, 2):
+        for valve_id in gpio.valve_ids:
             details = gpio.get_valve_details(valve_id)
             if details.get('open'):
                 planned = details.get('duration')

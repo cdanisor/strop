@@ -19,6 +19,14 @@
     --z2: #6a5acd;
     --z1-soft: #dff1ee;
     --z2-soft: #ebe8fa;
+    --z3: #b9532a;
+    --z4: #2f6fbf;
+    --z5: #a8407a;
+    --z6: #5c7a1c;
+    --z3-soft: #f8e7df;
+    --z4-soft: #e3edf9;
+    --z5-soft: #f6e3ee;
+    --z6-soft: #eaf0dc;
     --warn: #b7791f;
     --warn-soft: #fbf1e1;
     --danger: #c43d36;
@@ -49,6 +57,14 @@
         --z2: #9b8cf0;
         --z1-soft: #173a36;
         --z2-soft: #28243f;
+        --z3: #f08a5d;
+        --z4: #6aa8ef;
+        --z5: #e07fb6;
+        --z6: #a6c95a;
+        --z3-soft: #3d2519;
+        --z4-soft: #182a40;
+        --z5-soft: #3a1f30;
+        --z6-soft: #2a3318;
         --warn: #e0a84a;
     --warn-soft: #3a2e17;
         --danger: #ef6b62;
@@ -77,6 +93,14 @@
     --z2: #9b8cf0;
     --z1-soft: #173a36;
     --z2-soft: #28243f;
+    --z3: #f08a5d;
+    --z4: #6aa8ef;
+    --z5: #e07fb6;
+    --z6: #a6c95a;
+    --z3-soft: #3d2519;
+    --z4-soft: #182a40;
+    --z5-soft: #3a1f30;
+    --z6-soft: #2a3318;
     --warn: #e0a84a;
     --warn-soft: #3a2e17;
     --danger: #ef6b62;
@@ -470,14 +494,17 @@ svg { display: block; }
 }
 .tag-z1 { background: var(--z1-soft); color: var(--z1); }
 .tag-z2 { background: var(--z2-soft); color: var(--z2); }
+.tag-z3 { background: var(--z3-soft); color: var(--z3); }
+.tag-z4 { background: var(--z4-soft); color: var(--z4); }
+.tag-z5 { background: var(--z5-soft); color: var(--z5); }
+.tag-z6 { background: var(--z6-soft); color: var(--z6); }
 .tag-plan { border: 1px dashed var(--faint); color: var(--muted); }
 .day-nodata { font-size: 12px; color: var(--faint); }
 
 .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-.sw-z1 { background: var(--z1); }
-.sw-z2 { background: var(--z2); }
+.legend-zones { display: contents; }
 .sw-plan { border: 1px dashed var(--faint); }
 
 /* ------------------------------------------------------------------ weather adjustment (zone) */

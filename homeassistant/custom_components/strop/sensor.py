@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_LANGUAGE, DOMAIN, VALVES
+from .const import CONF_LANGUAGE, DOMAIN
 from .entity import StropEntity
 from .messages import next_run_text
 
@@ -31,12 +31,12 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddE
     coordinator = entry.runtime_data
     # "next run duration" was merged into the next-run sensor's attributes
     registry = er.async_get(hass)
-    for v in VALVES:
+    for v in coordinator.zone_ids:
         old = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_zone{v}_next_duration")
         if old:
             registry.async_remove(old)
     entities: list[SensorEntity] = []
-    for v in VALVES:
+    for v in coordinator.zone_ids:
         entities += [StropRemaining(coordinator, v), StropNextRun(coordinator, v)]
     entities += [StropAdjustment(coordinator), StropWateredToday(coordinator), StropWeatherUpdated(coordinator)]
     async_add_entities(entities)
@@ -155,7 +155,7 @@ class StropWateredToday(StropEntity, SensorEntity):
     def native_value(self) -> int:
         usage = (self.coordinator.data or {}).get("usage") or {}
         today = dt_util.now().date().isoformat()
-        return int(sum((usage.get(str(v)) or {}).get(today, 0) for v in VALVES))
+        return int(sum((days or {}).get(today, 0) for days in usage.values()))
 
 
 class StropWeatherUpdated(StropEntity, SensorEntity):

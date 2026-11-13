@@ -23,7 +23,6 @@ from src.services.watering_adjustment import WateringAdjuster, encode_note
 
 logger = logging.getLogger(__name__)
 
-VALVE_IDS = (1, 2)
 DEFAULT_DURATION = 60  # seconds, used when a schedule has no duration stored
 JOB_PREFIX = 'schedule_'
 
@@ -115,8 +114,17 @@ class ValveCronScheduler:
     # ------------------------------------------------------------------ syncing
     def reload_all(self):
         """Sync the jobs of all valves with the database."""
-        for valve_id in VALVE_IDS:
+        for valve_id in self._zone_ids():
             self.reload_valve(valve_id)
+
+    def _zone_ids(self):
+        """Zones configured in config.json (schedules of removed zones stay in the DB, unscheduled)."""
+        ms = self.main_service
+        gpio = getattr(ms, 'gpio_service', None)
+        if gpio is not None:
+            return gpio.valve_ids
+        config_service = getattr(ms, 'config_service', None)
+        return tuple(config_service.zones()) if config_service is not None else (1, 2)
 
     # Backwards compatible name
     _load_existing_crons = reload_all

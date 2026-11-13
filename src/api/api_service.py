@@ -17,6 +17,23 @@ MAX_DURATION_SECONDS = 3600
 MAX_SCHEDULES_PER_ZONE = 8
 
 
+def _zone_ids():
+    """Ids of the zones configured in config.json."""
+    from src.main_service import main_service
+    if main_service.gpio_service is not None:
+        return list(main_service.gpio_service.valve_ids)
+    return main_service.config_service.zone_ids()
+
+
+def _valid_zone(valve_id):
+    return valve_id in _zone_ids()
+
+
+def _invalid_zone(valve_id):
+    return {'error': f'Invalid valve ID {valve_id}. Configured zones: '
+                     + ', '.join(str(z) for z in _zone_ids()), 'code': 'invalid_zone'}
+
+
 def _overlap_response(conflict):
     """400 answer for a schedule that would overlap another run of the zone."""
     other = conflict.get('schedule_id')
@@ -176,8 +193,8 @@ class APIService:
                 from src.main_service import main_service
                 
                 # Validate valve ID
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
                 
                 # Check if valve is already active
                 current_status = main_service.get_valve_status(valve_id)
@@ -235,8 +252,8 @@ class APIService:
                 from src.main_service import main_service
                 
                 # Validate valve ID
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
                 
                 # Check if valve is already inactive
                 current_status = main_service.get_valve_status(valve_id)
@@ -276,8 +293,8 @@ class APIService:
                 from src.main_service import main_service
                 
                 # Validate valve ID
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
                 
                 # Get valve status
                 status = main_service.get_valve_status(valve_id)
@@ -335,8 +352,8 @@ class APIService:
                 db = Database()
                 
                 # Validate valve ID
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
                 
                 # Get valve logs for this valve
                 logs = db.get_valve_logs(valve_id=valve_id, limit=20)
@@ -478,8 +495,8 @@ class APIService:
                 db = Database()
     
                 # Validate valve ID
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
     
                 # Get valve cron
                 cron = db.get_valve_cron(valve_id)
@@ -512,8 +529,8 @@ class APIService:
                 db = Database()
     
                 # Validate valve ID
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
     
                 # Get cron data from request
                 cron_data = request.get_json(silent=True)
@@ -593,8 +610,8 @@ class APIService:
                 from src.database import Database
                 db = Database()
 
-                if valve_id not in [1, 2]:
-                    return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+                if not _valid_zone(valve_id):
+                    return jsonify(_invalid_zone(valve_id)), 400
 
                 if not db.update_valve_cron(valve_id, '', False):
                     return jsonify({'success': False,
@@ -657,16 +674,16 @@ class APIService:
         @self.app.route('/api/valves/<int:valve_id>/schedules', methods=['GET'])
         def list_schedules(valve_id):
             from src.database import Database
-            if valve_id not in [1, 2]:
-                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            if not _valid_zone(valve_id):
+                return jsonify(_invalid_zone(valve_id)), 400
             return jsonify({'schedules': [_schedule_json(s) for s in Database().list_schedules(valve_id)]}), 200
 
         @self.app.route('/api/valves/<int:valve_id>/schedules', methods=['POST'])
         def create_schedule(valve_id):
             from src.database import Database
             from src.services.valve_cron_scheduler import find_schedule_conflict
-            if valve_id not in [1, 2]:
-                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            if not _valid_zone(valve_id):
+                return jsonify(_invalid_zone(valve_id)), 400
             fields, error = _schedule_payload(request.get_json(silent=True))
             if error:
                 return error
@@ -725,8 +742,8 @@ class APIService:
             """Turn all schedules of a zone on or off (Home Assistant's schedule switch)."""
             from src.database import Database
             from src.services.valve_cron_scheduler import find_schedule_conflict
-            if valve_id not in [1, 2]:
-                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            if not _valid_zone(valve_id):
+                return jsonify(_invalid_zone(valve_id)), 400
             enabled = (request.get_json(silent=True) or {}).get('enabled')
             if not isinstance(enabled, bool):
                 return jsonify({'success': False, 'message': 'enabled must be true or false'}), 400
@@ -850,8 +867,8 @@ class APIService:
         def set_valve_name(valve_id):
             """Rename a zone; an empty name restores the default ("Zona N")."""
             from src.main_service import main_service
-            if valve_id not in [1, 2]:
-                return jsonify({'error': 'Invalid valve ID. Must be 1 or 2'}), 400
+            if not _valid_zone(valve_id):
+                return jsonify(_invalid_zone(valve_id)), 400
             payload = request.get_json(silent=True) or {}
             if not isinstance(payload.get('name', ''), str):
                 return jsonify({'error': 'name must be a string'}), 400
@@ -879,7 +896,8 @@ class APIService:
                 weather_by_date = {w['date']: w for w in db.get_all_daily_weather_data()}
 
                 valves = []
-                for valve_id in (1, 2):
+                zone_ids = _zone_ids()
+                for valve_id in zone_ids:
                     details = main_service.get_valve_details(valve_id)
                     schedules = db.list_schedules(valve_id)
                     planned = []
@@ -952,7 +970,7 @@ class APIService:
                     })
 
                 # Watering seconds per valve per day for the last 7 days
-                usage = {1: {}, 2: {}}
+                usage = {valve_id: {} for valve_id in zone_ids}
                 start_day = today - timedelta(days=6)
                 for log in db.get_valve_logs(limit=500):
                     if not log['duration']:

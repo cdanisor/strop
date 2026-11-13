@@ -17,11 +17,11 @@ import threading
 from typing import Dict, Any, Optional
 
 from src.database import Database
+from src.services.config_service import parse_zones
 
 logger = logging.getLogger(__name__)
 
 MAX_DURATION_SECONDS = 3600  # 1 hour hard limit for any valve opening
-VALVE_IDS = (1, 2)
 
 
 class GPIOControlService:
@@ -29,13 +29,14 @@ class GPIOControlService:
 
     def __init__(self, config: Dict[str, Any], db: Optional[Database] = None, on_event=None):
         self.config = config
-        self.valve1_pin = config.get('gpio', {}).get('valve1_pin', 23)
-        self.valve2_pin = config.get('gpio', {}).get('valve2_pin', 24)
+        # {zone id: BCM pin}; raises ZoneConfigError on a bad config
+        self.pins: Dict[int, int] = parse_zones(config)
+        self.valve_ids = tuple(self.pins)
         self.is_initialized = False
         self.is_simulation_mode = False
         self._gpio = None
 
-        self.valve_states = {valve_id: False for valve_id in VALVE_IDS}
+        self.valve_states = {valve_id: False for valve_id in self.valve_ids}
         self.active_timers: Dict[int, threading.Timer] = {}
         self.valve_start_times: Dict[int, datetime.datetime] = {}
         self.open_log_ids: Dict[int, Optional[int]] = {}
@@ -55,7 +56,7 @@ class GPIOControlService:
             logger.error(f"Event callback failed: {e}")
 
     def _pin(self, valve_id: int) -> int:
-        return self.valve1_pin if valve_id == 1 else self.valve2_pin
+        return self.pins[valve_id]
 
     def _setup_gpio(self) -> None:
         """Setup GPIO pins for output or use simulation mode."""
@@ -63,12 +64,12 @@ class GPIOControlService:
             import RPi.GPIO as GPIO
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.BCM)
-            for pin in (self.valve1_pin, self.valve2_pin):
+            for pin in self.pins.values():
                 GPIO.setup(pin, GPIO.OUT)
                 GPIO.output(pin, GPIO.LOW)
             self._gpio = GPIO
             self.is_initialized = True
-            logger.info("GPIO pins initialized successfully")
+            logger.info("GPIO pins initialized: " + ", ".join(f"zone {z} -> GPIO {p}" for z, p in self.pins.items()))
         except ImportError:
             self.is_simulation_mode = True
             self.is_initialized = True
@@ -100,7 +101,7 @@ class GPIOControlService:
         if not self.is_initialized:
             logger.error("GPIO not initialized")
             return False
-        if valve_id not in VALVE_IDS:
+        if valve_id not in self.pins:
             logger.error(f"Invalid valve ID: {valve_id}")
             return False
 
@@ -140,7 +141,7 @@ class GPIOControlService:
         if not self.is_initialized:
             logger.error("GPIO not initialized")
             return False
-        if valve_id not in VALVE_IDS:
+        if valve_id not in self.pins:
             logger.error(f"Invalid valve ID: {valve_id}")
             return False
 
@@ -175,7 +176,7 @@ class GPIOControlService:
             return True
 
     def get_valve_status(self, valve_id: int) -> bool:
-        if valve_id not in VALVE_IDS:
+        if valve_id not in self.pins:
             logger.error(f"Invalid valve ID: {valve_id}")
             return False
         return self.valve_states[valve_id]
@@ -194,7 +195,7 @@ class GPIOControlService:
             return []
         corrected = []
         with self._lock:
-            for valve_id in VALVE_IDS:
+            for valve_id in self.valve_ids:
                 pin = self._pin(valve_id)
                 try:
                     level = self._gpio.input(pin)
@@ -234,7 +235,7 @@ class GPIOControlService:
         if not self.is_initialized:
             return
         with self._lock:
-            for valve_id in VALVE_IDS:
+            for valve_id in self.valve_ids:
                 if self.valve_states.get(valve_id):
                     try:
                         self.deactivate_valve(valve_id, status='Terminated')
@@ -246,7 +247,7 @@ class GPIOControlService:
 
             if not self.is_simulation_mode:
                 try:
-                    for pin in (self.valve1_pin, self.valve2_pin):
+                    for pin in self.pins.values():
                         self._gpio.output(pin, self._gpio.LOW)
                     self._gpio.cleanup()
                     logger.info("GPIO cleanup completed")

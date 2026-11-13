@@ -5,13 +5,12 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass, Bina
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import VALVES
 from .entity import StropEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(StropWatering(coordinator, v) for v in VALVES)
+    async_add_entities(StropWatering(coordinator, v) for v in coordinator.zone_ids)
 
 
 class StropWatering(StropEntity, BinarySensorEntity):

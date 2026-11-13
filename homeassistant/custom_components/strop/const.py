@@ -17,6 +17,7 @@ TOKEN_NAME = "home-assistant"
 WEBHOOK_NAME = "home-assistant"
 
 SCAN_INTERVAL = timedelta(seconds=60)
+# Zones used until the controller reports its own list (configured in its config.json)
 VALVES = (1, 2)
 DEFAULT_MANUAL_MINUTES = 10
 
